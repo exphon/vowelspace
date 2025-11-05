@@ -103,7 +103,7 @@ def perform_manova(df, group_by='vowel'):
             results['formants'][formant] = {
                 'f_statistic': float(f_stat),
                 'p_value': float(p_value),
-                'significant': p_value < 0.05,
+                'significant': bool(p_value < 0.05),
                 'significance_level': '***' if p_value < 0.001 else '**' if p_value < 0.01 else '*' if p_value < 0.05 else 'ns'
             }
     
@@ -316,7 +316,7 @@ def perform_pairwise_tests(df, group_by='vowel'):
                             't_statistic': float(t_stat),
                             'p_value': float(p_value),
                             'cohens_d': float(cohens_d),
-                            'significant': p_value < 0.05,
+                            'significant': bool(p_value < 0.05),
                             'mean_diff': float(np.mean(vals1) - np.mean(vals2))
                         }
     

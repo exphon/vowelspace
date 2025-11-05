@@ -3,6 +3,7 @@ import os
 from werkzeug.utils import secure_filename
 import json
 import traceback
+import numpy as np
 from utils.data_processor import process_csv_xlsx, process_wav_textgrid
 from utils.visualizer import (
     create_static_vowel_space, 
@@ -12,6 +13,24 @@ from utils.visualizer import (
     create_lda_plot
 )
 from utils.statistics import perform_comprehensive_analysis
+
+
+def convert_to_json_serializable(obj):
+    """Convert numpy types to native Python types for JSON serialization"""
+    if isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {key: convert_to_json_serializable(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_to_json_serializable(item) for item in obj]
+    else:
+        return obj
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -262,6 +281,10 @@ def analyze_data():
         keys_to_remove = [k for k in analysis_results.keys() if k.startswith('lda_data_')]
         for key in keys_to_remove:
             del analysis_results[key]
+        
+        # Convert all numpy types to JSON serializable types
+        analysis_results = convert_to_json_serializable(analysis_results)
+        plots = convert_to_json_serializable(plots)
         
         # Clean up uploaded files
         for f in uploaded_files:

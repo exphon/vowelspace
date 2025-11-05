@@ -387,51 +387,76 @@ a,700,1200,1.5</pre>
             const plots = data.plots;
 
             // Descriptive statistics
-            if (analysis.descriptive_statistics) {
-                const desc = analysis.descriptive_statistics;
+            if (analysis.descriptive) {
                 let html = '<h3>기술통계량</h3>';
                 
-                for (const [group, stats] of Object.entries(desc)) {
-                    html += `<h4>${group}</h4>`;
-                    html += '<table class="stats-table"><thead><tr>';
-                    html += '<th>통계량</th><th>F1</th><th>F2</th></tr></thead><tbody>';
+                // Show statistics for each grouping variable
+                for (const [groupVar, stats] of Object.entries(analysis.descriptive)) {
+                    html += `<h4>${groupVar} 기준</h4>`;
                     
-                    html += `<tr><td>평균</td><td>${stats.F1.mean.toFixed(2)}</td><td>${stats.F2.mean.toFixed(2)}</td></tr>`;
-                    html += `<tr><td>표준편차</td><td>${stats.F1.std.toFixed(2)}</td><td>${stats.F2.std.toFixed(2)}</td></tr>`;
-                    html += `<tr><td>최소값</td><td>${stats.F1.min.toFixed(2)}</td><td>${stats.F2.min.toFixed(2)}</td></tr>`;
-                    html += `<tr><td>최대값</td><td>${stats.F1.max.toFixed(2)}</td><td>${stats.F2.max.toFixed(2)}</td></tr>`;
-                    
-                    html += '</tbody></table>';
+                    if (stats.by_group && Object.keys(stats.by_group).length > 0) {
+                        for (const [group, groupStats] of Object.entries(stats.by_group)) {
+                            html += `<h5>${group}</h5>`;
+                            html += '<table class="stats-table"><thead><tr>';
+                            html += '<th>통계량</th><th>F1</th><th>F2</th></tr></thead><tbody>';
+                            
+                            if (groupStats.F1 && groupStats.F2) {
+                                html += `<tr><td>평균</td><td>${groupStats.F1.mean.toFixed(2)}</td><td>${groupStats.F2.mean.toFixed(2)}</td></tr>`;
+                                html += `<tr><td>표준편차</td><td>${groupStats.F1.std.toFixed(2)}</td><td>${groupStats.F2.std.toFixed(2)}</td></tr>`;
+                                html += `<tr><td>최소값</td><td>${groupStats.F1.min.toFixed(2)}</td><td>${groupStats.F2.min.toFixed(2)}</td></tr>`;
+                                html += `<tr><td>최대값</td><td>${groupStats.F1.max.toFixed(2)}</td><td>${groupStats.F2.max.toFixed(2)}</td></tr>`;
+                            }
+                            
+                            html += '</tbody></table>';
+                        }
+                    }
                 }
                 
                 document.getElementById('descriptive').innerHTML = html;
             }
 
-            // MANOVA results
-            if (analysis.manova) {
-                const manova = analysis.manova;
+            // MANOVA results - handle multiple grouping variables
+            if (analysis.manova && Object.keys(analysis.manova).length > 0) {
                 let html = '<h3>다변량 분산분석 (MANOVA)</h3>';
-                html += '<p>모음 그룹 간 F1, F2의 통합적 차이를 검정합니다.</p>';
-                html += '<table class="stats-table"><thead><tr>';
-                html += '<th>검정 통계량</th><th>값</th><th>p-value</th><th>유의성</th></tr></thead><tbody>';
+                html += '<p>그룹 간 F1, F2의 통합적 차이를 검정합니다.</p>';
                 
-                if (manova.wilks_lambda !== undefined) {
-                    const significant = manova.p_value < 0.05 ? '✓ 유의함' : '유의하지 않음';
-                    html += `<tr><td>Wilks' Lambda</td><td>${manova.wilks_lambda.toFixed(4)}</td>`;
-                    html += `<td>${manova.p_value.toFixed(4)}</td><td>${significant}</td></tr>`;
-                }
-                
-                html += '</tbody></table>';
-                
-                if (manova.message) {
-                    html += `<p class="note">${manova.message}</p>`;
+                for (const [groupVar, manovaResult] of Object.entries(analysis.manova)) {
+                    if (manovaResult && !manovaResult.error) {
+                        html += `<h4>${groupVar} 기준</h4>`;
+                        
+                        // Show formant-wise ANOVA results
+                        if (manovaResult.formants) {
+                            html += '<table class="stats-table"><thead><tr>';
+                            html += '<th>Formant</th><th>F-통계량</th><th>p-value</th><th>유의성</th></tr></thead><tbody>';
+                            
+                            for (const [formant, result] of Object.entries(manovaResult.formants)) {
+                                const significant = result.significant ? '✓ 유의함' : '유의하지 않음';
+                                html += `<tr><td>${formant}</td><td>${result.f_statistic.toFixed(4)}</td>`;
+                                html += `<td>${result.p_value.toFixed(4)}</td><td>${significant} ${result.significance_level}</td></tr>`;
+                            }
+                            
+                            html += '</tbody></table>';
+                        }
+                        
+                        // Show multivariate test if available
+                        if (manovaResult.multivariate) {
+                            html += '<p class="note"><strong>다변량 검정:</strong> ';
+                            if (manovaResult.multivariate.test) {
+                                html += `${manovaResult.multivariate.test} = ${manovaResult.multivariate.statistic.toFixed(4)}`;
+                            }
+                            if (manovaResult.multivariate.interpretation) {
+                                html += ` (${manovaResult.multivariate.interpretation})`;
+                            }
+                            html += '</p>';
+                        }
+                    }
                 }
                 
                 document.getElementById('manova').innerHTML = html;
             }
 
             // PCA results
-            if (analysis.pca && plots.pca_plot) {
+            if (analysis.pca && plots.pca) {
                 const pca = analysis.pca;
                 let html = '<h3>주성분 분석 (PCA)</h3>';
                 html += '<p>F1과 F2의 변동을 주성분으로 요약합니다.</p>';
@@ -451,59 +476,96 @@ a,700,1200,1.5</pre>
                 
                 // Render PCA plot
                 setTimeout(() => {
-                    Plotly.newPlot('pcaPlot', plots.pca_plot.data, plots.pca_plot.layout, {responsive: true});
+                    Plotly.newPlot('pcaPlot', plots.pca.data, plots.pca.layout, {responsive: true});
                 }, 100);
             }
 
-            // LDA results
-            if (analysis.lda && plots.lda_plot) {
-                const lda = analysis.lda;
+            // LDA results - handle multiple LDA analyses
+            if (analysis.lda && Object.keys(analysis.lda).length > 0) {
                 let html = '<h3>선형 판별 분석 (LDA)</h3>';
-                html += '<p>모음 그룹을 최대한 분리하는 판별함수를 찾습니다.</p>';
+                html += '<p>그룹을 최대한 분리하는 판별함수를 찾습니다.</p>';
                 
-                html += '<table class="stats-table"><thead><tr>';
-                html += '<th>메트릭</th><th>값</th></tr></thead><tbody>';
-                
-                html += `<tr><td>판별함수 개수</td><td>${lda.n_components}</td></tr>`;
-                html += `<tr><td>분류 정확도</td><td>${(lda.accuracy * 100).toFixed(2)}%</td></tr>`;
-                
-                html += '</tbody></table>';
-                
-                html += '<div id="ldaPlot" class="plot-container"></div>';
+                // Show LDA for each grouping variable
+                for (const [groupVar, ldaResult] of Object.entries(analysis.lda)) {
+                    if (ldaResult && !ldaResult.error) {
+                        const plotKey = `lda_${groupVar}`;
+                        const plotId = `ldaPlot_${groupVar}`;
+                        
+                        html += `<h4>${groupVar} 기준 LDA</h4>`;
+                        html += '<table class="stats-table"><thead><tr>';
+                        html += '<th>메트릭</th><th>값</th></tr></thead><tbody>';
+                        
+                        html += `<tr><td>판별함수 개수</td><td>${ldaResult.n_components}</td></tr>`;
+                        html += `<tr><td>분류 정확도</td><td>${(ldaResult.accuracy * 100).toFixed(2)}%</td></tr>`;
+                        html += `<tr><td>그룹 수</td><td>${ldaResult.n_groups}</td></tr>`;
+                        
+                        html += '</tbody></table>';
+                        
+                        if (plots[plotKey]) {
+                            html += `<div id="${plotId}" class="plot-container"></div>`;
+                        }
+                    }
+                }
                 
                 document.getElementById('lda').innerHTML = html;
                 
-                // Render LDA plot
+                // Render all LDA plots
                 setTimeout(() => {
-                    Plotly.newPlot('ldaPlot', plots.lda_plot.data, plots.lda_plot.layout, {responsive: true});
+                    for (const [groupVar, ldaResult] of Object.entries(analysis.lda)) {
+                        if (ldaResult && !ldaResult.error) {
+                            const plotKey = `lda_${groupVar}`;
+                            const plotId = `ldaPlot_${groupVar}`;
+                            
+                            if (plots[plotKey]) {
+                                Plotly.newPlot(plotId, plots[plotKey].data, plots[plotKey].layout, {responsive: true});
+                            }
+                        }
+                    }
                 }, 100);
             }
 
-            // Pairwise tests
-            if (analysis.pairwise_tests) {
-                const tests = analysis.pairwise_tests;
-                let html = '<h3>모음 쌍별 t-검정</h3>';
-                html += '<p>모든 모음 쌍에 대해 F1, F2의 차이를 검정합니다.</p>';
+            // Pairwise tests - handle multiple grouping variables
+            if (analysis.pairwise && Object.keys(analysis.pairwise).length > 0) {
+                let html = '<h3>쌍별 t-검정</h3>';
+                html += '<p>모든 그룹 쌍에 대해 F1, F2의 차이를 검정합니다.</p>';
                 
-                for (const [formant, comparisons] of Object.entries(tests)) {
-                    html += `<h4>${formant}</h4>`;
-                    html += '<table class="stats-table"><thead><tr>';
-                    html += '<th>비교</th><th>t-통계량</th><th>p-value</th><th>Cohen\'s d</th><th>효과크기</th></tr></thead><tbody>';
-                    
-                    for (const [pair, result] of Object.entries(comparisons)) {
-                        const effectSize = Math.abs(result.cohens_d) < 0.2 ? '작음' : 
-                                          Math.abs(result.cohens_d) < 0.5 ? '중간' : 
-                                          Math.abs(result.cohens_d) < 0.8 ? '큼' : '매우 큼';
-                        const significant = result.p_value < 0.05 ? ' class="significant"' : '';
+                for (const [groupVar, pairwiseResult] of Object.entries(analysis.pairwise)) {
+                    if (pairwiseResult && !pairwiseResult.error && pairwiseResult.comparisons) {
+                        html += `<h4>${groupVar} 기준</h4>`;
                         
-                        html += `<tr${significant}><td>${pair}</td>`;
-                        html += `<td>${result.t_statistic.toFixed(3)}</td>`;
-                        html += `<td>${result.p_value.toFixed(4)}</td>`;
-                        html += `<td>${result.cohens_d.toFixed(3)}</td>`;
-                        html += `<td>${effectSize}</td></tr>`;
+                        // Group comparisons by formant
+                        const byFormant = { F1: {}, F2: {} };
+                        
+                        for (const [pair, formantResults] of Object.entries(pairwiseResult.comparisons)) {
+                            for (const [formant, result] of Object.entries(formantResults)) {
+                                byFormant[formant][pair] = result;
+                            }
+                        }
+                        
+                        // Display tables for each formant
+                        for (const [formant, comparisons] of Object.entries(byFormant)) {
+                            if (Object.keys(comparisons).length > 0) {
+                                html += `<h5>${formant}</h5>`;
+                                html += '<table class="stats-table"><thead><tr>';
+                                html += '<th>비교</th><th>t-통계량</th><th>p-value</th><th>Cohen\'s d</th><th>효과크기</th></tr></thead><tbody>';
+                                
+                                for (const [pair, result] of Object.entries(comparisons)) {
+                                    const effectSize = Math.abs(result.cohens_d) < 0.2 ? '작음' : 
+                                                      Math.abs(result.cohens_d) < 0.5 ? '중간' : 
+                                                      Math.abs(result.cohens_d) < 0.8 ? '큼' : '매우 큼';
+                                    const significant = result.significant ? ' class="significant"' : '';
+                                    
+                                    html += `<tr${significant}><td>${pair}</td>`;
+                                    html += `<td>${result.t_statistic.toFixed(3)}</td>`;
+                                    html += `<td>${result.p_value.toFixed(4)}</td>`;
+                                    html += `<td>${result.cohens_d.toFixed(3)}</td>`;
+                                    html += `<td>${effectSize}</td></tr>`;
+                                }
+                                
+                                html += '</tbody></table>';
+                            }
+                        }
                     }
-                    
-                    html += '</tbody></table>';
                 }
                 
                 html += '<p class="note">* p < 0.05인 경우 강조 표시</p>';
@@ -511,41 +573,62 @@ a,700,1200,1.5</pre>
                 document.getElementById('pairwise').innerHTML = html;
             }
 
-            // Vowel space metrics
-            if (analysis.vowel_space_metrics) {
-                const metrics = analysis.vowel_space_metrics;
+            // Vowel space metrics - handle multiple grouping variables
+            if (analysis.vowel_space && Object.keys(analysis.vowel_space).length > 0) {
                 let html = '<h3>모음 공간 메트릭</h3>';
                 html += '<p>모음 공간의 크기와 분산도를 정량화합니다.</p>';
                 
-                html += '<table class="stats-table"><thead><tr>';
-                html += '<th>메트릭</th><th>값</th><th>설명</th></tr></thead><tbody>';
-                
-                if (metrics.vowel_space_area !== undefined) {
-                    html += `<tr><td>모음 공간 면적</td><td>${metrics.vowel_space_area.toFixed(2)}</td>`;
-                    html += '<td>모음들이 형성하는 다각형의 면적 (Hz²)</td></tr>';
+                for (const [groupVar, metricsResult] of Object.entries(analysis.vowel_space)) {
+                    if (metricsResult) {
+                        html += `<h4>${groupVar} 기준</h4>`;
+                        
+                        // Overall metrics
+                        if (metricsResult.overall && !metricsResult.overall.error) {
+                            const metrics = metricsResult.overall;
+                            html += '<h5>전체</h5>';
+                            html += '<table class="stats-table"><thead><tr>';
+                            html += '<th>메트릭</th><th>값</th><th>설명</th></tr></thead><tbody>';
+                            
+                            if (metrics.area !== undefined) {
+                                html += `<tr><td>모음 공간 면적</td><td>${metrics.area.toFixed(2)}</td>`;
+                                html += '<td>모음들이 형성하는 다각형의 면적 (Hz²)</td></tr>';
+                            }
+                            
+                            if (metrics.centroid_F1 !== undefined && metrics.centroid_F2 !== undefined) {
+                                html += `<tr><td>중심점</td><td>F1: ${metrics.centroid_F1.toFixed(2)}, F2: ${metrics.centroid_F2.toFixed(2)}</td>`;
+                                html += '<td>모든 모음의 평균 위치</td></tr>';
+                            }
+                            
+                            if (metrics.dispersion !== undefined) {
+                                html += `<tr><td>분산도</td><td>${metrics.dispersion.toFixed(2)}</td>`;
+                                html += '<td>중심점으로부터의 평균 거리</td></tr>';
+                            }
+                            
+                            html += '</tbody></table>';
+                        }
+                        
+                        // Group-wise metrics
+                        if (metricsResult.by_group && Object.keys(metricsResult.by_group).length > 0) {
+                            for (const [group, metrics] of Object.entries(metricsResult.by_group)) {
+                                if (metrics && !metrics.error) {
+                                    html += `<h5>${group}</h5>`;
+                                    html += '<table class="stats-table"><thead><tr>';
+                                    html += '<th>메트릭</th><th>값</th></tr></thead><tbody>';
+                                    
+                                    if (metrics.area !== undefined) {
+                                        html += `<tr><td>면적</td><td>${metrics.area.toFixed(2)} Hz²</td></tr>`;
+                                    }
+                                    
+                                    if (metrics.dispersion !== undefined) {
+                                        html += `<tr><td>분산도</td><td>${metrics.dispersion.toFixed(2)}</td></tr>`;
+                                    }
+                                    
+                                    html += '</tbody></table>';
+                                }
+                            }
+                        }
+                    }
                 }
-                
-                if (metrics.f1_range !== undefined) {
-                    html += `<tr><td>F1 범위</td><td>${metrics.f1_range.toFixed(2)} Hz</td>`;
-                    html += '<td>F1의 최대값 - 최소값</td></tr>';
-                }
-                
-                if (metrics.f2_range !== undefined) {
-                    html += `<tr><td>F2 범위</td><td>${metrics.f2_range.toFixed(2)} Hz</td>`;
-                    html += '<td>F2의 최대값 - 최소값</td></tr>';
-                }
-                
-                if (metrics.centroid !== undefined) {
-                    html += `<tr><td>중심점</td><td>F1: ${metrics.centroid.F1.toFixed(2)}, F2: ${metrics.centroid.F2.toFixed(2)}</td>`;
-                    html += '<td>모든 모음의 평균 위치</td></tr>';
-                }
-                
-                if (metrics.dispersion !== undefined) {
-                    html += `<tr><td>분산도</td><td>${metrics.dispersion.toFixed(2)}</td>`;
-                    html += '<td>중심점으로부터의 평균 거리</td></tr>';
-                }
-                
-                html += '</tbody></table>';
                 
                 document.getElementById('metrics').innerHTML = html;
             }
