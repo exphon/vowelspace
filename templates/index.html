@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vowel Space Visualizer</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙️</text></svg>">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎙️ Vowel Space Visualizer</h1>
+            <p class="subtitle">모음 공간 및 포먼트 궤적 시각화 도구</p>
+        </header>
+
+        <main>
+            <section class="upload-section">
+                <h2>파일 업로드</h2>
+                <form id="uploadForm" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="vizType">시각화 유형:</label>
+                        <select id="vizType" name="viz_type">
+                            <option value="static">정적 모음 공간 (Static Vowel Space)</option>
+                            <option value="ellipse">타원 모음 공간 (Vowel Space with Ellipses)</option>
+                            <option value="dynamic">동적 포먼트 궤적 (Dynamic Formant Trajectory)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" id="ellipseOptions" style="display: none;">
+                        <label>
+                            <input type="checkbox" id="showPoints" name="show_points" checked>
+                            개별 데이터 포인트 표시
+                        </label>
+                        <p class="help-text">타원과 함께 원본 데이터 포인트를 표시합니다</p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="fileInput">파일 선택:</label>
+                        <input type="file" id="fileInput" name="files" multiple accept=".csv,.txt,.xlsx,.xls,.wav,.TextGrid">
+                        <div class="file-info">
+                            <p><strong>지원 형식:</strong></p>
+                            <ul>
+                                <li><strong>CSV/TXT/XLSX:</strong> F1, F2, vowel 열 포함 (time, duration 선택사항)</li>
+                                <li><strong>WAV + TextGrid:</strong> 음성 파일과 레이블 파일 (선택사항)</li>
+                                <li><strong>WAV only:</strong> 음성 파일만 (자동 포먼트 추출)</li>
+                            </ul>
+                            <p class="auto-detect-note">💡 <strong>자동 컬럼 감지:</strong> 다양한 컬럼명을 자동으로 인식합니다 
+                            (예: f1, F1, first_formant, formant_1 등)</p>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn-primary">
+                        <span id="uploadText">시각화하기</span>
+                        <span id="uploadSpinner" class="spinner" style="display: none;"></span>
+                    </button>
+                </form>
+
+                <div class="example-section">
+                    <button id="exampleBtn" class="btn-secondary">예제 데이터 보기</button>
+                </div>
+            </section>
+
+            <section class="result-section" id="resultSection" style="display: none;">
+                <h2>결과</h2>
+                
+                <div class="data-info" id="dataInfo">
+                    <!-- Data summary will be inserted here -->
+                </div>
+
+                <div id="plotContainer" class="plot-container">
+                    <!-- Plot will be inserted here -->
+                </div>
+
+                <div class="action-buttons">
+                    <button id="downloadBtn" class="btn-secondary">그래프 다운로드 (PNG)</button>
+                    <button id="resetBtn" class="btn-secondary">새로 시작</button>
+                </div>
+            </section>
+
+            <section class="error-section" id="errorSection" style="display: none;">
+                <div class="error-message" id="errorMessage"></div>
+            </section>
+        </main>
+
+        <footer>
+            <div class="info-section">
+                <h3>사용 방법</h3>
+                <ol>
+                    <li>시각화 유형을 선택합니다 (정적/동적)</li>
+                    <li>데이터 파일을 업로드합니다</li>
+                    <li>결과 그래프를 확인하고 다운로드합니다</li>
+                </ol>
+                
+                <h3>데이터 형식</h3>
+                <div class="format-examples">
+                    <div class="format-box">
+                        <h4>CSV/TXT 예시 (자동 감지 가능)</h4>
+                        <pre>vowel,F1,F2,time
+i,300,2300,0.5
+e,450,2100,1.0
+a,700,1200,1.5</pre>
+                        <p class="note">다양한 컬럼명 사용 가능: f1/F1/first_formant, phone/vowel/phoneme 등</p>
+                    </div>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        const uploadForm = document.getElementById('uploadForm');
+        const fileInput = document.getElementById('fileInput');
+        const vizTypeSelect = document.getElementById('vizType');
+        const ellipseOptions = document.getElementById('ellipseOptions');
+        const resultSection = document.getElementById('resultSection');
+        const errorSection = document.getElementById('errorSection');
+        const errorMessage = document.getElementById('errorMessage');
+        const dataInfo = document.getElementById('dataInfo');
+        const plotContainer = document.getElementById('plotContainer');
+        const exampleBtn = document.getElementById('exampleBtn');
+        const uploadText = document.getElementById('uploadText');
+        const uploadSpinner = document.getElementById('uploadSpinner');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const resetBtn = document.getElementById('resetBtn');
+
+        let currentPlot = null;
+
+        // Show/hide ellipse options based on visualization type
+        vizTypeSelect.addEventListener('change', function() {
+            if (this.value === 'ellipse') {
+                ellipseOptions.style.display = 'block';
+            } else {
+                ellipseOptions.style.display = 'none';
+            }
+        });
+
+        uploadForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const files = fileInput.files;
+            if (files.length === 0) {
+                showError('파일을 선택해주세요.');
+                return;
+            }
+
+            const formData = new FormData();
+            for (let file of files) {
+                formData.append('files', file);
+            }
+            formData.append('viz_type', document.getElementById('vizType').value);
+            
+            // Add ellipse options if ellipse type is selected
+            if (document.getElementById('vizType').value === 'ellipse') {
+                formData.append('show_ellipses', 'true');
+                formData.append('show_points', document.getElementById('showPoints').checked ? 'true' : 'false');
+            }
+
+            showLoading(true);
+            hideError();
+            hideResult();
+
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    showResult(data);
+                } else {
+                    showError(data.error || '파일 처리 중 오류가 발생했습니다.');
+                }
+            } catch (error) {
+                showError('서버와 통신 중 오류가 발생했습니다: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        });
+
+        exampleBtn.addEventListener('click', async () => {
+            showLoading(true);
+            hideError();
+            hideResult();
+
+            try {
+                const response = await fetch('/example');
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    showResult(data);
+                } else {
+                    showError('예제 데이터를 불러오는 중 오류가 발생했습니다.');
+                }
+            } catch (error) {
+                showError('서버와 통신 중 오류가 발생했습니다: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        });
+
+        downloadBtn.addEventListener('click', () => {
+            if (currentPlot) {
+                Plotly.downloadImage(plotContainer, {
+                    format: 'png',
+                    width: 1200,
+                    height: 900,
+                    filename: 'vowel_space_plot'
+                });
+            }
+        });
+
+        resetBtn.addEventListener('click', () => {
+            hideResult();
+            hideError();
+            uploadForm.reset();
+            fileInput.value = '';
+        });
+
+        function showResult(data) {
+            // Display data summary
+            if (data.data_summary) {
+                const summary = data.data_summary;
+                let summaryHTML = '<h3>데이터 요약</h3><ul>';
+                summaryHTML += `<li><strong>총 데이터 포인트:</strong> ${summary.rows}</li>`;
+                
+                // 컬럼 감지 정보 표시
+                if (summary.column_detection && summary.column_detection.details) {
+                    summaryHTML += '<li><strong>자동 감지된 컬럼:</strong><ul>';
+                    const details = summary.column_detection.details;
+                    for (const [standardName, info] of Object.entries(details)) {
+                        summaryHTML += `<li><strong>${standardName}</strong>: "${info.actual_name}"`;
+                        
+                        if (info.min !== undefined) {
+                            summaryHTML += ` (범위: ${Math.round(info.min)}-${Math.round(info.max)} Hz, 평균: ${Math.round(info.mean)} Hz)`;
+                        } else if (info.unique_count !== undefined) {
+                            summaryHTML += ` (고유값 ${info.unique_count}개)`;
+                            if (info.sample_values && info.sample_values.length > 0) {
+                                summaryHTML += ` [예: ${info.sample_values.join(', ')}]`;
+                            }
+                        }
+                        summaryHTML += '</li>';
+                    }
+                    summaryHTML += '</ul></li>';
+                }
+                
+                if (summary.vowels && summary.vowels.length > 0) {
+                    summaryHTML += `<li><strong>모음 종류:</strong> ${summary.vowels.join(', ')}</li>`;
+                }
+                summaryHTML += `<li><strong>모든 컬럼:</strong> ${summary.columns.join(', ')}</li>`;
+                summaryHTML += '</ul>';
+                dataInfo.innerHTML = summaryHTML;
+            }
+
+            // Display plot
+            currentPlot = data.plot;
+            Plotly.newPlot(plotContainer, currentPlot.data, currentPlot.layout, {responsive: true});
+
+            resultSection.style.display = 'block';
+            resultSection.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorSection.style.display = 'block';
+            errorSection.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function hideError() {
+            errorSection.style.display = 'none';
+        }
+
+        function hideResult() {
+            resultSection.style.display = 'none';
+        }
+
+        function showLoading(isLoading) {
+            if (isLoading) {
+                uploadText.style.display = 'none';
+                uploadSpinner.style.display = 'inline-block';
+                uploadForm.querySelector('button[type="submit"]').disabled = true;
+            } else {
+                uploadText.style.display = 'inline';
+                uploadSpinner.style.display = 'none';
+                uploadForm.querySelector('button[type="submit"]').disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

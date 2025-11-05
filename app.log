@@ -1,0 +1,34 @@
+nohup: ignoring input
+ * Serving Flask app 'app'
+ * Debug mode: on
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://210.125.93.241:5000
+Press CTRL+C to quit
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 486-570-872
+ * Detected change in '/var/www/html/vowelspace/app.py', reloading
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 486-570-872
+10.50.106.53 - - [05/Nov/2025 11:57:50] "GET / HTTP/1.1" 200 -
+10.50.106.53 - - [05/Nov/2025 11:57:50] "GET /static/style.css HTTP/1.1" 200 -
+10.50.106.53 - - [05/Nov/2025 11:57:54] "GET /example HTTP/1.1" 200 -
+10.50.106.53 - - [05/Nov/2025 11:58:03] "POST /upload HTTP/1.1" 200 -
+10.50.106.53 - - [05/Nov/2025 11:59:42] "POST /upload HTTP/1.1" 200 -
+ * Detected change in '/var/www/html/vowelspace/test_ellipse.py', reloading
+Processing file: uploads/test_multi_speaker.csv
+Auto-detected columns: {'F1': 'F1', 'F2': 'F2', 'vowel': 'vowel', 'speaker': 'speaker', 'native_language': 'native_language', 'time': 'time', 'duration': 'duration'}
+Successfully processed 300 rows
+Data shape: (300, 7)
+Detected columns: {'F1': 'F1', 'F2': 'F2', 'vowel': 'vowel', 'speaker': 'speaker', 'native_language': 'native_language', 'time': 'time', 'duration': 'duration'}
+Processing file: uploads/test_format4.csv
+Auto-detected columns: {'F1': 'f1', 'F2': 'f2', 'vowel': 'v', 'speaker': 'spk', 'native_language': 'lang', 'time': 't', 'duration': 'dur_s'}
+Successfully processed 300 rows
+Data shape: (300, 7)
+Detected columns: {'F1': 'f1', 'F2': 'f2', 'vowel': 'v', 'speaker': 'spk', 'native_language': 'lang', 'time': 't', 'duration': 'dur_s'}
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 486-570-872
