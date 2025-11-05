@@ -216,6 +216,7 @@ a,700,1200,1.5</pre>
                 formData.append('files', file);
             }
             formData.append('viz_type', document.getElementById('vizType').value);
+            formData.append('formant_scale', document.getElementById('formantScale').value);
             
             // Add ellipse options if ellipse type is selected
             if (document.getElementById('vizType').value === 'ellipse') {
