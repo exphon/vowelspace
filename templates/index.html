@@ -28,6 +28,17 @@
                         </select>
                     </div>
 
+                    <div class="form-group">
+                        <label for="formantScale">포먼트 스케일:</label>
+                        <select id="formantScale" name="formant_scale">
+                            <option value="Hz" selected>Hz (헤르츠)</option>
+                            <option value="Bark">Bark (바크)</option>
+                            <option value="ERB">ERB (등가 직사각 대역폭)</option>
+                            <option value="Mel">Mel (멜)</option>
+                        </select>
+                        <p class="help-text">포먼트 주파수 표시 단위를 선택합니다. 업로드된 데이터는 Hz로 간주되며 자동 변환됩니다.</p>
+                    </div>
+
                     <div class="form-group" id="ellipseOptions" style="display: none;">
                         <label>
                             <input type="checkbox" id="showPoints" name="show_points" checked>
@@ -297,6 +308,9 @@ a,700,1200,1.5</pre>
             for (let file of currentFiles) {
                 formData.append('files', file);
             }
+            
+            // Add formant scale
+            formData.append('formant_scale', document.getElementById('formantScale').value);
 
             showLoading(true);
             hideError();

@@ -60,11 +60,15 @@ def calculate_ellipse(x, y, n_std=2.0, n_points=100):
     return x_ellipse, y_ellipse
 
 
-def create_static_vowel_space(df):
+def create_static_vowel_space(df, scale='Hz'):
     """
     Create an interactive static vowel space plot (F1 vs F2)
     Supports filtering by vowel, speaker, and native_language
     Traditionally, F1 is on Y-axis (inverted) and F2 is on X-axis (inverted)
+    
+    Args:
+        df: DataFrame with F1, F2 columns
+        scale: Frequency scale label ('Hz', 'Bark', 'ERB', 'Mel')
     """
     if df is None or df.empty:
         print("Error: Empty dataframe in create_static_vowel_space")
@@ -238,20 +242,20 @@ def create_static_vowel_space(df):
         # Invert axes (traditional vowel space representation)
         fig.update_xaxes(
             autorange='reversed',
-            title='F2 (Hz)',
+            title=f'F2 ({scale})',
             showgrid=True,
             gridcolor='lightgray'
         )
         fig.update_yaxes(
             autorange='reversed',
-            title='F1 (Hz)',
+            title=f'F1 ({scale})',
             showgrid=True,
             gridcolor='lightgray'
         )
         
         # Update layout with interactive legend
         fig.update_layout(
-            title='Interactive Vowel Space (F1 vs F2)<br><sub>Click legend items to show/hide • Double-click to isolate</sub>',
+            title=f'Interactive Vowel Space (F1 vs F2) - {scale}<br><sub>Click legend items to show/hide • Double-click to isolate</sub>',
             width=1000,
             height=700,
             plot_bgcolor='white',
@@ -285,10 +289,14 @@ def create_static_vowel_space(df):
         return None
 
 
-def create_dynamic_formant_trajectory(df):
+def create_dynamic_formant_trajectory(df, scale='Hz'):
     """
     Create an interactive dynamic formant trajectory plot
     Shows how formants change over time with grouping by vowel, speaker, and language
+    
+    Args:
+        df: DataFrame with formant data
+        scale: Frequency scale label ('Hz', 'Bark', 'ERB', 'Mel')
     """
     if df.empty:
         return None
@@ -432,20 +440,20 @@ def create_dynamic_formant_trajectory(df):
     # Invert axes (traditional vowel space representation)
     fig.update_xaxes(
         autorange='reversed',
-        title='F2 (Hz)',
+        title=f'F2 ({scale})',
         showgrid=True,
         gridcolor='lightgray'
     )
     fig.update_yaxes(
         autorange='reversed',
-        title='F1 (Hz)',
+        title=f'F1 ({scale})',
         showgrid=True,
         gridcolor='lightgray'
     )
     
     # Update layout
     fig.update_layout(
-        title=f'Interactive Formant Trajectory<br><sub>Click legend items to show/hide • Double-click to isolate</sub>',
+        title=f'Interactive Formant Trajectory - {scale}<br><sub>Click legend items to show/hide • Double-click to isolate</sub>',
         width=1000,
         height=700,
         plot_bgcolor='white',
@@ -908,7 +916,7 @@ def calculate_confidence_ellipse(x, y, n_std=2.0, n_points=100):
     return ellipse_x, ellipse_y
 
 
-def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True):
+def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True, scale='Hz'):
     """
     Create vowel space visualization with confidence ellipses
     
@@ -916,6 +924,7 @@ def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True
         df: DataFrame with F1, F2, and optionally vowel, speaker, native_language
         confidence_level: confidence level for ellipses (0.95 = 95%)
         show_points: whether to show individual data points
+        scale: Frequency scale label ('Hz', 'Bark', 'ERB', 'Mel')
     
     Returns:
         Plotly figure in JSON format
@@ -1079,13 +1088,13 @@ def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True
         # Invert axes
         fig.update_xaxes(
             autorange='reversed',
-            title='F2 (Hz)',
+            title=f'F2 ({scale})',
             showgrid=True,
             gridcolor='lightgray'
         )
         fig.update_yaxes(
             autorange='reversed',
-            title='F1 (Hz)',
+            title=f'F1 ({scale})',
             showgrid=True,
             gridcolor='lightgray'
         )
@@ -1093,7 +1102,7 @@ def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True
         # Update layout
         confidence_pct = int(confidence_level * 100)
         fig.update_layout(
-            title=f'Vowel Space with {confidence_pct}% Confidence Ellipses<br><sub>Click legend to show/hide • Double-click to isolate</sub>',
+            title=f'Vowel Space with {confidence_pct}% Confidence Ellipses - {scale}<br><sub>Click legend to show/hide • Double-click to isolate</sub>',
             width=1000,
             height=700,
             plot_bgcolor='white',
@@ -1127,13 +1136,14 @@ def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True
         return None
 
 
-def create_pca_plot(df_pca, pca_results):
+def create_pca_plot(df_pca, pca_results, scale='Hz'):
     """
     Create PCA biplot visualization
     
     Args:
         df_pca: DataFrame with PC1, PC2 columns and original grouping
         pca_results: Dict with PCA results including explained variance
+        scale: Frequency scale label ('Hz', 'Bark', 'ERB', 'Mel')
     
     Returns:
         JSON plot object
@@ -1214,7 +1224,7 @@ def create_pca_plot(df_pca, pca_results):
         var_pc2 = pca_results.get('explained_variance_ratio', [0, 0])[1] * 100
         
         fig.update_layout(
-            title=f'PCA Biplot<br><sub>Total variance explained: {var_pc1 + var_pc2:.1f}%</sub>',
+            title=f'PCA Biplot ({scale})<br><sub>Total variance explained: {var_pc1 + var_pc2:.1f}%</sub>',
             xaxis_title=f'PC1 ({var_pc1:.1f}% variance)',
             yaxis_title=f'PC2 ({var_pc2:.1f}% variance)',
             width=1000,
@@ -1245,7 +1255,7 @@ def create_pca_plot(df_pca, pca_results):
         return None
 
 
-def create_lda_plot(df_lda, lda_results, group_by='vowel'):
+def create_lda_plot(df_lda, lda_results, group_by='vowel', scale='Hz'):
     """
     Create LDA plot visualization
     
@@ -1253,6 +1263,7 @@ def create_lda_plot(df_lda, lda_results, group_by='vowel'):
         df_lda: DataFrame with LD1, LD2 columns and grouping
         lda_results: Dict with LDA results
         group_by: Grouping variable name
+        scale: Frequency scale label ('Hz', 'Bark', 'ERB', 'Mel')
     
     Returns:
         JSON plot object
@@ -1285,7 +1296,7 @@ def create_lda_plot(df_lda, lda_results, group_by='vowel'):
         accuracy = lda_results.get('accuracy', 0) * 100
         n_components = lda_results.get('n_components', 2)
         
-        title = f'Linear Discriminant Analysis (LDA)<br><sub>Classification accuracy: {accuracy:.1f}%</sub>'
+        title = f'Linear Discriminant Analysis ({scale})<br><sub>Classification accuracy: {accuracy:.1f}%</sub>'
         
         fig.update_layout(
             title=title,

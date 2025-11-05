@@ -13,6 +13,7 @@ from utils.visualizer import (
     create_lda_plot
 )
 from utils.statistics import perform_comprehensive_analysis
+from utils.formant_scales import convert_formants, get_scale_label, get_available_scales
 
 
 def convert_to_json_serializable(obj):
@@ -65,6 +66,7 @@ def upload_file():
         visualization_type = request.form.get('viz_type', 'static')
         show_ellipses = request.form.get('show_ellipses', 'false') == 'true'
         show_points = request.form.get('show_points', 'true') == 'true'
+        formant_scale = request.form.get('formant_scale', 'Hz')  # Get scale option
         
         if not files or files[0].filename == '':
             return jsonify({'error': '파일을 선택해주세요.'}), 400
@@ -120,18 +122,24 @@ def upload_file():
         if data is None or data.empty:
             return jsonify({'error': '데이터 처리에 실패했습니다. 파일 형식을 확인해주세요.'}), 500
         
-        # Create visualization
+        # Convert formant scale if needed
+        if formant_scale != 'Hz':
+            data = convert_formants(data, from_scale='Hz', to_scale=formant_scale)
+        
+        # Create visualization with scale label
+        scale_label = get_scale_label(formant_scale)
+        
         if visualization_type == 'static':
             if show_ellipses:
-                plot_json = create_vowel_space_with_ellipses(data, confidence_level=0.95, show_points=show_points)
+                plot_json = create_vowel_space_with_ellipses(data, confidence_level=0.95, show_points=show_points, scale=scale_label)
             else:
-                plot_json = create_static_vowel_space(data)
+                plot_json = create_static_vowel_space(data, scale=scale_label)
         elif visualization_type == 'dynamic':
-            plot_json = create_dynamic_formant_trajectory(data)
+            plot_json = create_dynamic_formant_trajectory(data, scale=scale_label)
         elif visualization_type == 'ellipse':
-            plot_json = create_vowel_space_with_ellipses(data, confidence_level=0.95, show_points=show_points)
+            plot_json = create_vowel_space_with_ellipses(data, confidence_level=0.95, show_points=show_points, scale=scale_label)
         else:
-            plot_json = create_static_vowel_space(data)
+            plot_json = create_static_vowel_space(data, scale=scale_label)
         
         if plot_json is None:
             return jsonify({'error': '시각화 생성에 실패했습니다.'}), 500
@@ -208,6 +216,7 @@ def analyze_data():
             return jsonify({'success': False, 'error': 'No file uploaded'}), 400
         
         files = request.files.getlist('files')
+        formant_scale = request.form.get('formant_scale', 'Hz')  # Get scale option
         
         if not files or files[0].filename == '':
             return jsonify({'success': False, 'error': 'No file selected'}), 400
@@ -246,36 +255,44 @@ def analyze_data():
         if data is None or data.empty:
             return jsonify({'success': False, 'error': 'Failed to process data'}), 500
         
+        # Convert formant scale if needed
+        if formant_scale != 'Hz':
+            data = convert_formants(data, from_scale='Hz', to_scale=formant_scale)
+        
         # Perform comprehensive analysis
         analysis_results = perform_comprehensive_analysis(data)
         
-        # Create visualizations
+        # Create visualizations with scale label
+        scale_label = get_scale_label(formant_scale)
         plots = {}
         
         # PCA plot
         if 'pca_data' in analysis_results:
-            plots['pca'] = create_pca_plot(analysis_results['pca_data'], analysis_results['pca'])
+            plots['pca'] = create_pca_plot(analysis_results['pca_data'], analysis_results['pca'], scale=scale_label)
         
         # LDA plots
         if 'vowel' in data.columns and 'lda_data_vowel' in analysis_results:
             plots['lda_vowel'] = create_lda_plot(
                 analysis_results['lda_data_vowel'], 
                 analysis_results['lda']['vowel'],
-                group_by='vowel'
+                group_by='vowel',
+                scale=scale_label
             )
         
         if 'speaker' in data.columns and 'lda_data_speaker' in analysis_results:
             plots['lda_speaker'] = create_lda_plot(
                 analysis_results['lda_data_speaker'],
                 analysis_results['lda']['speaker'],
-                group_by='speaker'
+                group_by='speaker',
+                scale=scale_label
             )
         
         if 'native_language' in data.columns and 'lda_data_native_language' in analysis_results:
             plots['lda_language'] = create_lda_plot(
                 analysis_results['lda_data_native_language'],
                 analysis_results['lda']['native_language'],
-                group_by='native_language'
+                group_by='native_language',
+                scale=scale_label
             )
         
         # Remove large data objects before sending
