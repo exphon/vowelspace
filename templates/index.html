@@ -75,7 +75,45 @@
 
                 <div class="action-buttons">
                     <button id="downloadBtn" class="btn-secondary">그래프 다운로드 (PNG)</button>
+                    <button id="analyzeBtn" class="btn-primary" style="display: none;">📊 통계 분석 수행</button>
                     <button id="resetBtn" class="btn-secondary">새로 시작</button>
+                </div>
+            </section>
+
+            <section class="analysis-section" id="analysisSection" style="display: none;">
+                <h2>📊 통계 분석 결과</h2>
+                
+                <div class="tabs">
+                    <button class="tab-button active" data-tab="descriptive">기술통계</button>
+                    <button class="tab-button" data-tab="manova">MANOVA</button>
+                    <button class="tab-button" data-tab="pca">PCA</button>
+                    <button class="tab-button" data-tab="lda">LDA</button>
+                    <button class="tab-button" data-tab="pairwise">쌍별 검정</button>
+                    <button class="tab-button" data-tab="metrics">모음 공간 메트릭</button>
+                </div>
+
+                <div id="descriptive" class="tab-content active">
+                    <!-- Descriptive statistics will be inserted here -->
+                </div>
+
+                <div id="manova" class="tab-content">
+                    <!-- MANOVA results will be inserted here -->
+                </div>
+
+                <div id="pca" class="tab-content">
+                    <!-- PCA results and plot will be inserted here -->
+                </div>
+
+                <div id="lda" class="tab-content">
+                    <!-- LDA results and plot will be inserted here -->
+                </div>
+
+                <div id="pairwise" class="tab-content">
+                    <!-- Pairwise test results will be inserted here -->
+                </div>
+
+                <div id="metrics" class="tab-content">
+                    <!-- Vowel space metrics will be inserted here -->
                 </div>
             </section>
 
@@ -123,8 +161,26 @@ a,700,1200,1.5</pre>
         const uploadSpinner = document.getElementById('uploadSpinner');
         const downloadBtn = document.getElementById('downloadBtn');
         const resetBtn = document.getElementById('resetBtn');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const analysisSection = document.getElementById('analysisSection');
 
         let currentPlot = null;
+        let currentFiles = null;
+
+        // Tab switching functionality
+        document.querySelectorAll('.tab-button').forEach(button => {
+            button.addEventListener('click', function() {
+                const tabName = this.getAttribute('data-tab');
+                
+                // Remove active class from all tabs and contents
+                document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+                
+                // Add active class to clicked tab and corresponding content
+                this.classList.add('active');
+                document.getElementById(tabName).classList.add('active');
+            });
+        });
 
         // Show/hide ellipse options based on visualization type
         vizTypeSelect.addEventListener('change', function() {
@@ -156,9 +212,13 @@ a,700,1200,1.5</pre>
                 formData.append('show_points', document.getElementById('showPoints').checked ? 'true' : 'false');
             }
 
+            // Store files for later analysis
+            currentFiles = files;
+
             showLoading(true);
             hideError();
             hideResult();
+            hideAnalysis();
 
             try {
                 const response = await fetch('/upload', {
@@ -170,6 +230,11 @@ a,700,1200,1.5</pre>
 
                 if (response.ok && data.success) {
                     showResult(data);
+                    
+                    // Show analyze button if data has required columns
+                    if (data.data_summary && data.data_summary.column_detection) {
+                        analyzeBtn.style.display = 'inline-block';
+                    }
                 } else {
                     showError(data.error || '파일 처리 중 오류가 발생했습니다.');
                 }
@@ -215,8 +280,45 @@ a,700,1200,1.5</pre>
         resetBtn.addEventListener('click', () => {
             hideResult();
             hideError();
+            hideAnalysis();
             uploadForm.reset();
             fileInput.value = '';
+            currentFiles = null;
+            analyzeBtn.style.display = 'none';
+        });
+
+        analyzeBtn.addEventListener('click', async () => {
+            if (!currentFiles || currentFiles.length === 0) {
+                showError('분석할 파일이 없습니다.');
+                return;
+            }
+
+            const formData = new FormData();
+            for (let file of currentFiles) {
+                formData.append('files', file);
+            }
+
+            showLoading(true);
+            hideError();
+
+            try {
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    showAnalysis(data);
+                } else {
+                    showError(data.error || '통계 분석 중 오류가 발생했습니다.');
+                }
+            } catch (error) {
+                showError('서버와 통신 중 오류가 발생했습니다: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
         });
 
         function showResult(data) {
@@ -274,6 +376,182 @@ a,700,1200,1.5</pre>
 
         function hideResult() {
             resultSection.style.display = 'none';
+        }
+
+        function hideAnalysis() {
+            analysisSection.style.display = 'none';
+        }
+
+        function showAnalysis(data) {
+            const analysis = data.analysis;
+            const plots = data.plots;
+
+            // Descriptive statistics
+            if (analysis.descriptive_statistics) {
+                const desc = analysis.descriptive_statistics;
+                let html = '<h3>기술통계량</h3>';
+                
+                for (const [group, stats] of Object.entries(desc)) {
+                    html += `<h4>${group}</h4>`;
+                    html += '<table class="stats-table"><thead><tr>';
+                    html += '<th>통계량</th><th>F1</th><th>F2</th></tr></thead><tbody>';
+                    
+                    html += `<tr><td>평균</td><td>${stats.F1.mean.toFixed(2)}</td><td>${stats.F2.mean.toFixed(2)}</td></tr>`;
+                    html += `<tr><td>표준편차</td><td>${stats.F1.std.toFixed(2)}</td><td>${stats.F2.std.toFixed(2)}</td></tr>`;
+                    html += `<tr><td>최소값</td><td>${stats.F1.min.toFixed(2)}</td><td>${stats.F2.min.toFixed(2)}</td></tr>`;
+                    html += `<tr><td>최대값</td><td>${stats.F1.max.toFixed(2)}</td><td>${stats.F2.max.toFixed(2)}</td></tr>`;
+                    
+                    html += '</tbody></table>';
+                }
+                
+                document.getElementById('descriptive').innerHTML = html;
+            }
+
+            // MANOVA results
+            if (analysis.manova) {
+                const manova = analysis.manova;
+                let html = '<h3>다변량 분산분석 (MANOVA)</h3>';
+                html += '<p>모음 그룹 간 F1, F2의 통합적 차이를 검정합니다.</p>';
+                html += '<table class="stats-table"><thead><tr>';
+                html += '<th>검정 통계량</th><th>값</th><th>p-value</th><th>유의성</th></tr></thead><tbody>';
+                
+                if (manova.wilks_lambda !== undefined) {
+                    const significant = manova.p_value < 0.05 ? '✓ 유의함' : '유의하지 않음';
+                    html += `<tr><td>Wilks' Lambda</td><td>${manova.wilks_lambda.toFixed(4)}</td>`;
+                    html += `<td>${manova.p_value.toFixed(4)}</td><td>${significant}</td></tr>`;
+                }
+                
+                html += '</tbody></table>';
+                
+                if (manova.message) {
+                    html += `<p class="note">${manova.message}</p>`;
+                }
+                
+                document.getElementById('manova').innerHTML = html;
+            }
+
+            // PCA results
+            if (analysis.pca && plots.pca_plot) {
+                const pca = analysis.pca;
+                let html = '<h3>주성분 분석 (PCA)</h3>';
+                html += '<p>F1과 F2의 변동을 주성분으로 요약합니다.</p>';
+                
+                html += '<table class="stats-table"><thead><tr>';
+                html += '<th>주성분</th><th>설명된 분산 (%)</th></tr></thead><tbody>';
+                
+                pca.explained_variance_ratio.forEach((ratio, idx) => {
+                    html += `<tr><td>PC${idx + 1}</td><td>${(ratio * 100).toFixed(2)}%</td></tr>`;
+                });
+                
+                html += '</tbody></table>';
+                
+                html += '<div id="pcaPlot" class="plot-container"></div>';
+                
+                document.getElementById('pca').innerHTML = html;
+                
+                // Render PCA plot
+                setTimeout(() => {
+                    Plotly.newPlot('pcaPlot', plots.pca_plot.data, plots.pca_plot.layout, {responsive: true});
+                }, 100);
+            }
+
+            // LDA results
+            if (analysis.lda && plots.lda_plot) {
+                const lda = analysis.lda;
+                let html = '<h3>선형 판별 분석 (LDA)</h3>';
+                html += '<p>모음 그룹을 최대한 분리하는 판별함수를 찾습니다.</p>';
+                
+                html += '<table class="stats-table"><thead><tr>';
+                html += '<th>메트릭</th><th>값</th></tr></thead><tbody>';
+                
+                html += `<tr><td>판별함수 개수</td><td>${lda.n_components}</td></tr>`;
+                html += `<tr><td>분류 정확도</td><td>${(lda.accuracy * 100).toFixed(2)}%</td></tr>`;
+                
+                html += '</tbody></table>';
+                
+                html += '<div id="ldaPlot" class="plot-container"></div>';
+                
+                document.getElementById('lda').innerHTML = html;
+                
+                // Render LDA plot
+                setTimeout(() => {
+                    Plotly.newPlot('ldaPlot', plots.lda_plot.data, plots.lda_plot.layout, {responsive: true});
+                }, 100);
+            }
+
+            // Pairwise tests
+            if (analysis.pairwise_tests) {
+                const tests = analysis.pairwise_tests;
+                let html = '<h3>모음 쌍별 t-검정</h3>';
+                html += '<p>모든 모음 쌍에 대해 F1, F2의 차이를 검정합니다.</p>';
+                
+                for (const [formant, comparisons] of Object.entries(tests)) {
+                    html += `<h4>${formant}</h4>`;
+                    html += '<table class="stats-table"><thead><tr>';
+                    html += '<th>비교</th><th>t-통계량</th><th>p-value</th><th>Cohen\'s d</th><th>효과크기</th></tr></thead><tbody>';
+                    
+                    for (const [pair, result] of Object.entries(comparisons)) {
+                        const effectSize = Math.abs(result.cohens_d) < 0.2 ? '작음' : 
+                                          Math.abs(result.cohens_d) < 0.5 ? '중간' : 
+                                          Math.abs(result.cohens_d) < 0.8 ? '큼' : '매우 큼';
+                        const significant = result.p_value < 0.05 ? ' class="significant"' : '';
+                        
+                        html += `<tr${significant}><td>${pair}</td>`;
+                        html += `<td>${result.t_statistic.toFixed(3)}</td>`;
+                        html += `<td>${result.p_value.toFixed(4)}</td>`;
+                        html += `<td>${result.cohens_d.toFixed(3)}</td>`;
+                        html += `<td>${effectSize}</td></tr>`;
+                    }
+                    
+                    html += '</tbody></table>';
+                }
+                
+                html += '<p class="note">* p < 0.05인 경우 강조 표시</p>';
+                
+                document.getElementById('pairwise').innerHTML = html;
+            }
+
+            // Vowel space metrics
+            if (analysis.vowel_space_metrics) {
+                const metrics = analysis.vowel_space_metrics;
+                let html = '<h3>모음 공간 메트릭</h3>';
+                html += '<p>모음 공간의 크기와 분산도를 정량화합니다.</p>';
+                
+                html += '<table class="stats-table"><thead><tr>';
+                html += '<th>메트릭</th><th>값</th><th>설명</th></tr></thead><tbody>';
+                
+                if (metrics.vowel_space_area !== undefined) {
+                    html += `<tr><td>모음 공간 면적</td><td>${metrics.vowel_space_area.toFixed(2)}</td>`;
+                    html += '<td>모음들이 형성하는 다각형의 면적 (Hz²)</td></tr>';
+                }
+                
+                if (metrics.f1_range !== undefined) {
+                    html += `<tr><td>F1 범위</td><td>${metrics.f1_range.toFixed(2)} Hz</td>`;
+                    html += '<td>F1의 최대값 - 최소값</td></tr>';
+                }
+                
+                if (metrics.f2_range !== undefined) {
+                    html += `<tr><td>F2 범위</td><td>${metrics.f2_range.toFixed(2)} Hz</td>`;
+                    html += '<td>F2의 최대값 - 최소값</td></tr>';
+                }
+                
+                if (metrics.centroid !== undefined) {
+                    html += `<tr><td>중심점</td><td>F1: ${metrics.centroid.F1.toFixed(2)}, F2: ${metrics.centroid.F2.toFixed(2)}</td>`;
+                    html += '<td>모든 모음의 평균 위치</td></tr>';
+                }
+                
+                if (metrics.dispersion !== undefined) {
+                    html += `<tr><td>분산도</td><td>${metrics.dispersion.toFixed(2)}</td>`;
+                    html += '<td>중심점으로부터의 평균 거리</td></tr>';
+                }
+                
+                html += '</tbody></table>';
+                
+                document.getElementById('metrics').innerHTML = html;
+            }
+
+            analysisSection.style.display = 'block';
+            analysisSection.scrollIntoView({ behavior: 'smooth' });
         }
 
         function showLoading(isLoading) {

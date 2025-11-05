@@ -7,8 +7,11 @@ from utils.data_processor import process_csv_xlsx, process_wav_textgrid
 from utils.visualizer import (
     create_static_vowel_space, 
     create_dynamic_formant_trajectory,
-    create_vowel_space_with_ellipses
+    create_vowel_space_with_ellipses,
+    create_pca_plot,
+    create_lda_plot
 )
+from utils.statistics import perform_comprehensive_analysis
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -97,13 +100,13 @@ def upload_file():
         # Create visualization
         if visualization_type == 'static':
             if show_ellipses:
-                plot_json = create_vowel_space_with_ellipses(data, confidence=0.95, show_points=show_points)
+                plot_json = create_vowel_space_with_ellipses(data, confidence_level=0.95, show_points=show_points)
             else:
                 plot_json = create_static_vowel_space(data)
         elif visualization_type == 'dynamic':
             plot_json = create_dynamic_formant_trajectory(data)
         elif visualization_type == 'ellipse':
-            plot_json = create_vowel_space_with_ellipses(data, confidence=0.95, show_points=show_points)
+            plot_json = create_vowel_space_with_ellipses(data, confidence_level=0.95, show_points=show_points)
         else:
             plot_json = create_static_vowel_space(data)
         
@@ -172,6 +175,119 @@ def example_data():
         'success': True,
         'plot': plot_json
     })
+
+
+@app.route('/analyze', methods=['POST'])
+def analyze_data():
+    """통계 분석 엔드포인트"""
+    try:
+        if 'files' not in request.files:
+            return jsonify({'success': False, 'error': 'No file uploaded'}), 400
+        
+        files = request.files.getlist('files')
+        
+        if not files or files[0].filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
+        
+        uploaded_files = []
+        for file in files:
+            if file and allowed_file(file.filename):
+                filename = secure_filename(file.filename)
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                file.save(filepath)
+                uploaded_files.append({
+                    'name': filename,
+                    'path': filepath,
+                    'ext': filename.rsplit('.', 1)[1].lower()
+                })
+        
+        if not uploaded_files:
+            return jsonify({'success': False, 'error': 'Invalid file format'}), 400
+        
+        # Process files
+        data = None
+        detection_info = None
+        file_types = [f['ext'] for f in uploaded_files]
+        
+        if 'csv' in file_types or 'xlsx' in file_types or 'xls' in file_types or 'txt' in file_types:
+            for f in uploaded_files:
+                if f['ext'] in ['csv', 'xlsx', 'xls', 'txt']:
+                    result = process_csv_xlsx(f['path'], auto_detect=True)
+                    
+                    if isinstance(result, tuple):
+                        data, detection_info = result
+                    else:
+                        data = result
+                    break
+        
+        if data is None or data.empty:
+            return jsonify({'success': False, 'error': 'Failed to process data'}), 500
+        
+        # Perform comprehensive analysis
+        analysis_results = perform_comprehensive_analysis(data)
+        
+        # Create visualizations
+        plots = {}
+        
+        # PCA plot
+        if 'pca_data' in analysis_results:
+            plots['pca'] = create_pca_plot(analysis_results['pca_data'], analysis_results['pca'])
+        
+        # LDA plots
+        if 'vowel' in data.columns and 'lda_data_vowel' in analysis_results:
+            plots['lda_vowel'] = create_lda_plot(
+                analysis_results['lda_data_vowel'], 
+                analysis_results['lda']['vowel'],
+                group_by='vowel'
+            )
+        
+        if 'speaker' in data.columns and 'lda_data_speaker' in analysis_results:
+            plots['lda_speaker'] = create_lda_plot(
+                analysis_results['lda_data_speaker'],
+                analysis_results['lda']['speaker'],
+                group_by='speaker'
+            )
+        
+        if 'native_language' in data.columns and 'lda_data_native_language' in analysis_results:
+            plots['lda_language'] = create_lda_plot(
+                analysis_results['lda_data_native_language'],
+                analysis_results['lda']['native_language'],
+                group_by='native_language'
+            )
+        
+        # Remove large data objects before sending
+        if 'pca_data' in analysis_results:
+            del analysis_results['pca_data']
+        
+        keys_to_remove = [k for k in analysis_results.keys() if k.startswith('lda_data_')]
+        for key in keys_to_remove:
+            del analysis_results[key]
+        
+        # Clean up uploaded files
+        for f in uploaded_files:
+            if os.path.exists(f['path']):
+                os.remove(f['path'])
+        
+        return jsonify({
+            'success': True,
+            'analysis': analysis_results,
+            'plots': plots,
+            'column_detection': detection_info
+        })
+    
+    except Exception as e:
+        print(f"Error in analysis: {str(e)}")
+        print(traceback.format_exc())
+        
+        # Clean up on error
+        try:
+            for f in uploaded_files:
+                if os.path.exists(f['path']):
+                    os.remove(f['path'])
+        except:
+            pass
+        
+        return jsonify({'success': False, 'error': f'Analysis failed: {str(e)}'}), 500
 
 
 if __name__ == '__main__':
