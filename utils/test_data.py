@@ -90,7 +90,7 @@ def generate_varied_column_names_data():
         # Format 4: 약어
         {
             'filename': 'test_format4.csv',
-            'columns': {'speaker': 'spk', 'native_language': 'lang', 'vowel': 'v', 'F1': 'f1', 'F2': 'f2', 'time': 't', 'duration': 'dur_s'}
+            'columns': {'speaker': 'spk', 'native_language': 'lang', 'vowel': 'v', 'F1': 'f1', 'F2': 'f2', 'time': 't', 'duration': 'dur_ms'}
         },
     ]
     

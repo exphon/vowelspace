@@ -1,17 +1,43 @@
 # 🎙️ Vowel Space Visualizer
 
-음성학 연구를 위한 모음 공간 및 포먼트 궤적 시각화 웹 애플리케이션입니다.
+음성학 연구를 위한 모음 공간 및 포먼트 궤적 시각화 웹 애플리케이션입니다. 다양한 통계 분석 기능과 인터랙티브 시각화를 제공합니다.
 
-## � 빠른 링크
+## 📋 빠른 링크
 
 - [자동 컬럼 감지 가이드](AUTO_COLUMN_DETECTION_GUIDE.md) - 다양한 데이터 형식 자동 인식 기능
 - [문제 해결 가이드](TROUBLESHOOTING.md) - 일반적인 문제 해결 방법
+- [구현 요약](IMPLEMENTATION_SUMMARY.md) - 기술적 구현 세부사항
 
-## �📋 기능
+## ✨ 주요 기능
+
+### � 시각화 기능
 
 - **정적 모음 공간 시각화**: F1과 F2 값을 기반으로 전통적인 모음 공간 플롯 생성
 - **동적 포먼트 궤적 시각화**: 시간에 따른 포먼트 변화를 추적하고 시각화
-- **🤖 자동 컬럼 감지**: 다양한 형식의 컬럼명을 지능적으로 인식하고 표준화 ([상세 가이드](AUTO_COLUMN_DETECTION_GUIDE.md))
+- **타원 모음 공간**: 95% 신뢰 타원으로 모음 클러스터 표시
+- **다층 그룹화**: 모음(vowel), 화자(speaker), 모국어(native_language)에 따른 자동 그룹화
+- **포먼트 스케일 변환**: Hz, Bark, ERB, Mel 스케일 지원
+
+### 📈 통계 분석 기능
+
+- **기술통계**: 그룹별 평균, 표준편차, 최소/최대값
+- **MANOVA**: 다변량 분산분석 (그룹 간 유의성 검정)
+- **PCA**: 주성분 분석 (차원 축소 및 시각화)
+- **LDA**: 선형 판별 분석 (그룹 분류 및 시각화)
+- **쌍별 검정**: t-test와 Cohen's d 효과 크기
+- **모음 공간 메트릭**: 면적, 중심점, 분산도 계산
+
+### 📊 통계 그래프
+
+- **박스플롯 (Box Plot)**: 분포와 이상치 시각화
+- **바이올린 플롯 (Violin Plot)**: 확률밀도 포함 분포
+- **밀도 플롯 (Density Plot)**: Gaussian KDE로 부드러운 분포 곡선
+- **평균 비교 플롯**: 그룹별 평균값 및 표준 오차 비교
+- **산점도 행렬 (Scatter Matrix)**: 변수 간 쌍별 관계 시각화
+
+### 🤖 데이터 처리
+
+- **자동 컬럼 감지**: 다양한 형식의 컬럼명을 지능적으로 인식하고 표준화 ([상세 가이드](AUTO_COLUMN_DETECTION_GUIDE.md))
 - **다양한 입력 형식 지원**:
   - CSV/TXT/XLSX 파일 (F1, F2, vowel, time 등의 열 포함)
   - WAV 음성 파일 (자동 포먼트 추출)
@@ -125,7 +151,29 @@ i,300,2300,A,Korean
 
 ## 📊 사용 방법
 
-### CSV/TXT/XLSX 파일 업로드
+### 1. 기본 시각화
+
+1. **파일 업로드**: CSV/XLSX/TXT 또는 WAV 파일 선택
+2. **시각화 유형 선택**:
+   - 정적 모음 공간 (Static Vowel Space)
+   - 타원 모음 공간 (Vowel Space with Ellipses)
+   - 동적 포먼트 궤적 (Dynamic Formant Trajectory)
+3. **포먼트 스케일 선택**: Hz, Bark, ERB, Mel
+4. **시각화하기** 버튼 클릭
+
+### 2. 통계 분석
+
+1. 기본 시각화 완료 후 **"📊 통계 분석 수행"** 버튼 클릭
+2. 다음 탭에서 결과 확인:
+   - **기술통계**: 그룹별 평균, 표준편차 등
+   - **MANOVA**: 그룹 간 유의성 검정
+   - **PCA**: 주성분 분석 및 시각화
+   - **LDA**: 선형 판별 분석 및 분류
+   - **통계 그래프**: 박스플롯, 바이올린 플롯, 밀도 플롯, 평균 비교, 산점도 행렬
+   - **쌍별 검정**: 모든 그룹 쌍의 t-test 결과
+   - **모음 공간 메트릭**: 면적, 분산도 등
+
+### CSV/TXT/XLSX 파일 형식
 
 파일에 다음 열이 포함되어야 합니다:
 
@@ -135,10 +183,26 @@ i,300,2300,A,Korean
 
 **선택 열:**
 - `vowel`: 모음 레이블 (예: i, e, a, o, u)
+- `speaker`: 화자 ID (예: SP01, SP02)
+- `native_language`: 모국어 (예: Korean, English)
 - `time`: 시간 정보 (초 단위, 동적 시각화용)
 - `duration`: 지속 시간 (초 단위)
+- `gender`: 성별
+- `age`: 나이
 
-**예시 CSV:**
+**예시 CSV (다중 화자, 다중 언어):**
+```csv
+vowel,F1,F2,speaker,native_language,time,duration
+i,300,2300,SP01,Korean,0.5,0.15
+i,310,2280,SP01,Korean,0.6,0.12
+i,280,2350,SP02,English,0.5,0.18
+e,450,2100,SP01,Korean,1.0,0.20
+e,460,2090,SP02,English,1.0,0.22
+a,700,1200,SP01,Korean,1.5,0.25
+a,720,1180,SP02,English,1.5,0.28
+```
+
+**예시 CSV (간단한 형식):**
 ```csv
 vowel,F1,F2,time
 i,300,2300,0.5
@@ -165,32 +229,54 @@ TextGrid 파일은 Praat 형식이어야 하며, 모음 레이블이 포함된 i
 
 ### 시각화 유형 선택
 
-- **정적 모음 공간**: F1-F2 평면에서 모음의 분포를 보여줍니다
+- **정적 모음 공간**: F1-F2 평면에서 모음의 분포를 보여줍니다 (모음/화자/언어별 자동 그룹화)
+- **타원 모음 공간**: 95% 신뢰 타원으로 각 모음의 클러스터 범위 표시
 - **동적 포먼트 궤적**: 시간에 따른 포먼트 변화를 선과 화살표로 표시합니다
+
+### 포먼트 스케일
+
+다양한 심리음향학적 스케일을 지원합니다:
+
+- **Hz (헤르츠)**: 물리적 주파수 (기본값)
+- **Bark (바크)**: 임계대역 스케일
+- **ERB (등가 직사각 대역폭)**: 청각 필터 기반
+- **Mel (멜)**: 음높이 지각 스케일
+
+모든 시각화와 통계 분석은 선택한 스케일에 자동 적용됩니다.
 
 ## 📁 프로젝트 구조
 
 ```
 vowelspace/
-├── app.py                  # Flask 메인 애플리케이션
-├── requirements.txt        # Python 의존성 패키지
+├── app.py                          # Flask 메인 애플리케이션
+├── requirements.txt                # Python 의존성 패키지
+├── README.md                       # 이 파일
+├── AUTO_COLUMN_DETECTION_GUIDE.md  # 자동 컬럼 감지 상세 가이드
+├── TROUBLESHOOTING.md              # 문제 해결 가이드
+├── IMPLEMENTATION_SUMMARY.md       # 기술 구현 요약
 ├── utils/
-│   ├── data_processor.py  # 데이터 처리 유틸리티
-│   └── visualizer.py      # 시각화 함수
+│   ├── __init__.py
+│   ├── column_detector.py         # 자동 컬럼 감지 로직
+│   ├── data_processor.py          # 데이터 처리 유틸리티
+│   ├── formant_scales.py          # 포먼트 스케일 변환
+│   ├── statistics.py              # 통계 분석 (MANOVA, PCA, LDA 등)
+│   └── visualizer.py              # 시각화 함수 (모든 그래프 생성)
 ├── templates/
-│   └── index.html         # 웹 인터페이스
+│   └── index.html                 # 웹 인터페이스
 ├── static/
-│   └── style.css          # 스타일시트
-└── uploads/               # 임시 업로드 폴더 (자동 생성)
+│   └── style.css                  # 스타일시트
+├── test/                          # 테스트 데이터 및 예제
+└── uploads/                       # 임시 업로드 폴더 (자동 생성)
 ```
 
 ## 🔧 기술 스택
 
-- **Backend**: Flask (Python)
+- **Backend**: Flask (Python 3.8+)
 - **데이터 처리**: Pandas, NumPy
+- **통계 분석**: SciPy, scikit-learn
 - **음성 분석**: Parselmouth (Praat Python wrapper)
-- **시각화**: Plotly
-- **Frontend**: HTML, CSS, JavaScript
+- **시각화**: Plotly (인터랙티브 그래프)
+- **Frontend**: HTML5, CSS3, JavaScript (ES6+)
 
 ## 📖 API 엔드포인트
 
@@ -200,7 +286,10 @@ vowelspace/
 
 **Parameters:**
 - `files`: 업로드할 파일(들)
-- `viz_type`: 시각화 유형 (`static` 또는 `dynamic`)
+- `viz_type`: 시각화 유형 (`static`, `dynamic`, `ellipse`)
+- `show_ellipses`: 타원 표시 여부 (boolean)
+- `show_points`: 개별 데이터 포인트 표시 여부 (boolean)
+- `formant_scale`: 포먼트 스케일 (`Hz`, `Bark`, `ERB`, `Mel`)
 
 **Response:**
 ```json
@@ -210,8 +299,45 @@ vowelspace/
   "data_summary": {
     "rows": 100,
     "vowels": ["i", "e", "a", "o", "u"],
-    "columns": ["vowel", "F1", "F2", "time"]
+    "columns": ["vowel", "F1", "F2", "time"],
+    "column_detection": {
+      "detected": {...},
+      "original": {...}
+    }
   }
+}
+```
+
+### POST `/analyze`
+
+통계 분석을 수행합니다.
+
+**Parameters:**
+- `files`: 업로드할 파일(들)
+- `formant_scale`: 포먼트 스케일
+
+**Response:**
+```json
+{
+  "success": true,
+  "analysis": {
+    "descriptive": {...},
+    "manova": {...},
+    "pca": {...},
+    "lda": {...},
+    "pairwise": {...},
+    "vowel_space": {...}
+  },
+  "plots": {
+    "pca": {...},
+    "lda_vowel": {...},
+    "boxplot_vowel": {...},
+    "violin_vowel": {...},
+    "histogram_vowel": {...},
+    "mean_comparison_vowel": {...},
+    "scatter_matrix": {...}
+  },
+  "column_detection": {...}
 }
 ```
 
@@ -222,6 +348,37 @@ vowelspace/
 ## 🎯 예제 데이터
 
 "예제 데이터 보기" 버튼을 클릭하면 5개 모음(i, e, a, o, u)의 샘플 데이터를 볼 수 있습니다.
+
+`test/` 디렉토리에 다음 예제 파일들이 포함되어 있습니다:
+- `test_format1.csv` ~ `test_format4.csv`: 다양한 컬럼 형식 예제
+- `test_multi_speaker.csv`: 다중 화자 및 언어 데이터
+- `*.TextGrid`, `*.wav`: 음성 파일 예제
+
+## 📊 통계 그래프 상세 설명
+
+### 박스플롯 (Box Plot)
+- 중앙값, 25-75 백분위수(상자), 최소/최대값(수염), 이상치 표시
+- 그룹 간 분포 비교에 유용
+
+### 바이올린 플롯 (Violin Plot)
+- 박스플롯 + 확률 밀도 함수
+- 분포의 형태를 더 상세하게 표현
+
+### 밀도 플롯 (Density Plot)
+- Gaussian KDE로 부드러운 확률 밀도 곡선 생성
+- 히스토그램보다 연속적이고 매끄러운 분포 표현
+- 여러 그룹의 중첩 비교가 용이
+
+### 평균 비교 플롯 (Mean Comparison)
+- 그룹별 평균값과 표준 오차(error bar) 표시
+- 샘플 크기(n) 표시
+- 그룹 간 차이의 유의성 시각적 확인
+
+### 산점도 행렬 (Scatter Matrix)
+- 모든 변수 쌍(F1-F1, F1-F2, F2-F2)의 관계 표시
+- **대각선**: 각 포먼트의 분포 (히스토그램)
+- **비대각선**: F1 vs F2 산점도 (모음 공간)
+- 상관관계 패턴 및 모음 분리도 확인
 
 ## ⚙️ 설정
 
@@ -271,16 +428,88 @@ app.run(debug=True, host='0.0.0.0', port=8080)  # 포트를 8080으로 변경
 
 ## 🔬 연구 활용
 
+이 도구는 다음과 같은 연구에 활용할 수 있습니다:
+
+### 음향 음성학 (Acoustic Phonetics)
+- 모음 체계 기술 (vowel inventory description)
+- 방언 간 모음 공간 비교
+- 음성 변이 연구
+
+### 언어 습득 (Language Acquisition)
+- L2 학습자의 모음 공간 vs 원어민 비교
+- 연령대별 모음 발달 연구
+- 중간언어 분석
+
+### 음성 과학 (Speech Science)
+- 화자 정규화 (speaker normalization) 연구
+- 성별/연령에 따른 포먼트 차이
+- 음성 장애 진단 및 치료 모니터링
+
+### 음성 기술 (Speech Technology)
+- TTS/ASR 모델의 정확도 평가
+- 음성 합성 품질 검증
+- 포먼트 추정 알고리즘 비교
+
+## 📊 인용 (Citation)
+
 이 도구를 연구에 사용하는 경우, 다음과 같이 인용해주세요:
+
+```bibtex
+@software{vowelspace2025,
+  title = {Vowel Space Visualizer: A Web-Based Tool for Phonetic Analysis},
+  author = {{Vowel Space Development Team}},
+  year = {2025},
+  url = {https://github.com/exphon/vowelspace},
+  note = {Version 2.0 with statistical analysis}
+}
+```
+
+또는:
 
 ```
 Vowel Space Visualizer (2025). 
-A web-based tool for phonetic vowel space and formant trajectory visualization.
+A web-based tool for phonetic vowel space visualization and statistical analysis.
+https://github.com/exphon/vowelspace
 ```
 
 ## 📚 참고 자료
 
-- [Praat Manual](https://www.fon.hum.uva.nl/praat/manual/Intro.html)
-- [Parselmouth Documentation](https://parselmouth.readthedocs.io/)
-- [Plotly Python Documentation](https://plotly.com/python/)
-- [Flask Documentation](https://flask.palletsprojects.com/)
+### 음성학 및 음향 음성학
+- [Praat Manual](https://www.fon.hum.uva.nl/praat/manual/Intro.html) - 음성 분석 소프트웨어
+- [IPA Chart](https://www.internationalphoneticassociation.org/content/ipa-chart) - 국제 음성 기호
+
+### Python 라이브러리
+- [Parselmouth Documentation](https://parselmouth.readthedocs.io/) - Praat Python wrapper
+- [Plotly Python Documentation](https://plotly.com/python/) - 인터랙티브 시각화
+- [Flask Documentation](https://flask.palletsprojects.com/) - 웹 프레임워크
+- [scikit-learn](https://scikit-learn.org/) - 머신러닝 및 통계 분석
+- [SciPy](https://scipy.org/) - 과학 계산
+
+### 통계 분석
+- [MANOVA Tutorial](https://www.statology.org/manova-python/) - 다변량 분산분석
+- [PCA Explained](https://scikit-learn.org/stable/modules/decomposition.html#pca) - 주성분 분석
+- [LDA Guide](https://scikit-learn.org/stable/modules/lda_qda.html) - 선형 판별 분석
+
+## 🆕 버전 히스토리
+
+### Version 2.0 (2025-11)
+- ✨ 통계 분석 기능 추가 (MANOVA, PCA, LDA)
+- 📊 5가지 통계 그래프 추가 (박스플롯, 바이올린, 밀도, 평균비교, 산점도행렬)
+- 🔄 포먼트 스케일 변환 지원 (Hz, Bark, ERB, Mel)
+- 🎨 타원 모음 공간 시각화
+- 🤖 자동 컬럼 감지 개선
+- 📈 밀도 플롯 (Gaussian KDE) 구현
+
+### Version 1.0 (2025-01)
+- 🎙️ 초기 릴리스
+- 정적/동적 모음 공간 시각화
+- CSV/WAV/TextGrid 파일 지원
+- 자동 컬럼 감지 기본 기능
+
+## 🙏 감사의 글
+
+이 프로젝트는 다음 오픈소스 프로젝트들을 기반으로 합니다:
+- [Praat](http://www.praat.org/) by Paul Boersma and David Weenink
+- [Parselmouth](https://parselmouth.readthedocs.io/) by Yannick Jadoul
+- [Plotly](https://plotly.com/) by Plotly Technologies
+- [Flask](https://flask.palletsprojects.com/) by Pallets Team

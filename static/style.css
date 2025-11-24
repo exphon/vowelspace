@@ -103,6 +103,63 @@ h4 {
     transition: border-color 0.3s;
 }
 
+/* Hide default file input */
+.custom-file-upload input[type="file"] {
+    display: none;
+}
+
+.custom-file-upload {
+    position: relative;
+}
+
+.file-upload-label {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    cursor: pointer;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    overflow: hidden;
+    transition: border-color 0.3s;
+    min-height: 52px;
+}
+
+.file-upload-label:hover {
+    border-color: #667eea;
+}
+
+.file-upload-button {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 16px 30px;
+    font-weight: 600;
+    font-size: 1.1em;
+    border: none;
+    cursor: pointer;
+    transition: all 0.3s;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.file-upload-button:hover {
+    background: linear-gradient(135deg, #7b8fed 0%, #8b5bb5 100%);
+}
+
+.file-upload-text {
+    flex: 1;
+    padding: 16px 20px;
+    background: white;
+    color: #666;
+    font-size: 1em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+}
+
 .form-group select:focus,
 .form-group input[type="file"]:focus {
     outline: none;
@@ -210,6 +267,15 @@ h4 {
     margin-top: 20px;
     padding-top: 20px;
     border-top: 2px dashed #ddd;
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+.example-section .btn-secondary {
+    flex: 0 1 auto;
+    min-width: 200px;
 }
 
 .result-section {
@@ -475,4 +541,64 @@ footer {
     background: #f8f9fa;
     border-left: 4px solid #667eea;
     border-radius: 4px;
+}
+
+.extraction-method {
+    margin-top: 15px;
+    padding: 10px;
+    background: #e8f4f8;
+    border-radius: 8px;
+    border-left: 4px solid #667eea;
+}
+
+.extraction-method summary {
+    cursor: pointer;
+    color: #667eea;
+    font-weight: 600;
+    padding: 5px;
+    list-style: none;
+}
+
+.extraction-method summary::-webkit-details-marker {
+    display: none;
+}
+
+.extraction-method summary::before {
+    content: '▶ ';
+    display: inline-block;
+    transition: transform 0.3s;
+}
+
+.extraction-method[open] summary::before {
+    transform: rotate(90deg);
+}
+
+.method-details {
+    margin-top: 15px;
+    padding: 15px;
+    background: white;
+    border-radius: 5px;
+    line-height: 1.6;
+}
+
+.method-details ol {
+    margin-left: 20px;
+    margin-top: 10px;
+}
+
+.method-details li {
+    margin-bottom: 8px;
+}
+
+.method-details strong {
+    color: #764ba2;
+}
+
+.note-box {
+    margin-top: 15px;
+    padding: 10px;
+    background: #fff9e6;
+    border-left: 4px solid #ffc107;
+    border-radius: 4px;
+    font-size: 0.95em;
 }

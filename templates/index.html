@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,69 +12,92 @@
     <div class="container">
         <header>
             <h1>🎙️ Vowel Space Visualizer</h1>
-            <p class="subtitle">모음 공간 및 포먼트 궤적 시각화 도구</p>
+            <p class="subtitle">Vowel Space and Formant Trajectory Visualization Tool</p>
         </header>
 
         <main>
             <section class="upload-section">
-                <h2>파일 업로드</h2>
+                <h2>File Upload</h2>
                 <form id="uploadForm" enctype="multipart/form-data">
                     <div class="form-group">
-                        <label for="vizType">시각화 유형:</label>
+                        <label for="vizType">Visualization Type:</label>
                         <select id="vizType" name="viz_type">
-                            <option value="static">정적 모음 공간 (Static Vowel Space)</option>
-                            <option value="ellipse">타원 모음 공간 (Vowel Space with Ellipses)</option>
-                            <option value="dynamic">동적 포먼트 궤적 (Dynamic Formant Trajectory)</option>
+                            <option value="static">Static Vowel Space</option>
+                            <option value="ellipse">Vowel Space with Ellipses</option>
+                            <option value="dynamic">Dynamic Formant Trajectory</option>
                         </select>
                     </div>
 
                     <div class="form-group">
-                        <label for="formantScale">포먼트 스케일:</label>
+                        <label for="formantScale">Formant Scale:</label>
                         <select id="formantScale" name="formant_scale">
-                            <option value="Hz" selected>Hz (헤르츠)</option>
-                            <option value="Bark">Bark (바크)</option>
-                            <option value="ERB">ERB (등가 직사각 대역폭)</option>
-                            <option value="Mel">Mel (멜)</option>
+                            <option value="Hz" selected>Hz (Hertz)</option>
+                            <option value="Bark">Bark</option>
+                            <option value="ERB">ERB (Equivalent Rectangular Bandwidth)</option>
+                            <option value="Mel">Mel</option>
                         </select>
-                        <p class="help-text">포먼트 주파수 표시 단위를 선택합니다. 업로드된 데이터는 Hz로 간주되며 자동 변환됩니다.</p>
+                        <p class="help-text">Select the frequency scale for formant display. Uploaded data is assumed to be in Hz and will be automatically converted.</p>
                     </div>
 
                     <div class="form-group" id="ellipseOptions" style="display: none;">
                         <label>
                             <input type="checkbox" id="showPoints" name="show_points" checked>
-                            개별 데이터 포인트 표시
+                            Show Individual Data Points
                         </label>
-                        <p class="help-text">타원과 함께 원본 데이터 포인트를 표시합니다</p>
+                        <p class="help-text">Display original data points along with ellipses</p>
                     </div>
 
                     <div class="form-group">
-                        <label for="fileInput">파일 선택:</label>
-                        <input type="file" id="fileInput" name="files" multiple accept=".csv,.txt,.xlsx,.xls,.wav,.TextGrid">
+                        <label for="fileInput">Select File:</label>
+                        <div class="custom-file-upload">
+                            <input type="file" id="fileInput" name="files" multiple accept=".csv,.txt,.xlsx,.xls,.wav,.TextGrid">
+                            <label for="fileInput" class="file-upload-label">
+                                <span class="file-upload-button">Choose Files</span>
+                                <span class="file-upload-text" id="fileUploadText">No file selected</span>
+                            </label>
+                        </div>
                         <div class="file-info">
-                            <p><strong>지원 형식:</strong></p>
+                            <p><strong>Supported Formats:</strong></p>
                             <ul>
-                                <li><strong>CSV/TXT/XLSX:</strong> F1, F2, vowel 열 포함 (time, duration 선택사항)</li>
-                                <li><strong>WAV + TextGrid:</strong> 음성 파일과 레이블 파일 (선택사항)</li>
-                                <li><strong>WAV only:</strong> 음성 파일만 (자동 포먼트 추출)</li>
+                                <li><strong>CSV/TXT/XLSX:</strong> Must include F1, F2, vowel columns (time, duration optional)</li>
+                                <li><strong>WAV + TextGrid:</strong> Audio file with label file - Extracts formants from labeled vowel segments</li>
+                                <li><strong>WAV only:</strong> Audio file only (automatic formant extraction)</li>
                             </ul>
-                            <p class="auto-detect-note">💡 <strong>자동 컬럼 감지:</strong> 다양한 컬럼명을 자동으로 인식합니다 
-                            (예: f1, F1, first_formant, formant_1 등)</p>
+                            <p class="auto-detect-note">💡 <strong>Auto Column Detection:</strong> Automatically recognizes various column names 
+                            (e.g., f1, F1, first_formant, formant_1, etc.)</p>
+                            
+                            <details class="extraction-method">
+                                <summary><strong>📖 TextGrid Formant Extraction Method</strong></summary>
+                                <div class="method-details">
+                                    <p><strong>How formants are extracted from WAV + TextGrid files:</strong></p>
+                                    <ol>
+                                        <li><strong>Audio Processing:</strong> WAV files are automatically resampled to 16kHz for optimal formant analysis</li>
+                                        <li><strong>Vowel Detection:</strong> Only vowel segments (ARPABET: AH, IY, etc. / IPA: ɪ, ʊ, ə, etc.) are analyzed</li>
+                                        <li><strong>Sampling Region:</strong> Formants are measured from the <strong>middle 25% of each vowel's duration</strong> (37.5% ~ 62.5% timepoints) to avoid coarticulation effects</li>
+                                        <li><strong>Averaging:</strong> 5 measurement points within the middle region are sampled and averaged for stability</li>
+                                        <li><strong>Quality Control:</strong> Outliers beyond ±3 standard deviations (per vowel type) are automatically removed</li>
+                                        <li><strong>Praat Settings:</strong> Formant extraction uses Burg's method with 5 formants, 5500Hz ceiling, 25ms window, 10ms time step</li>
+                                    </ol>
+                                    <p class="note-box">📊 <strong>Result:</strong> Each vowel segment yields one F1/F2 measurement pair (averaged and rounded to 1 decimal place)</p>
+                                </div>
+                            </details>
                         </div>
                     </div>
 
                     <button type="submit" class="btn-primary">
-                        <span id="uploadText">시각화하기</span>
+                        <span id="uploadText">Visualize</span>
                         <span id="uploadSpinner" class="spinner" style="display: none;"></span>
                     </button>
                 </form>
 
                 <div class="example-section">
-                    <button id="exampleBtn" class="btn-secondary">예제 데이터 보기</button>
+                    <button id="exampleBtn" class="btn-secondary">View Example Data</button>
+                    <button id="downloadExampleBtn" class="btn-secondary">📥 Download Example Data</button>
                 </div>
             </section>
 
             <section class="result-section" id="resultSection" style="display: none;">
-                <h2>결과</h2>
+                <h2>Results</h2>
                 
                 <div class="data-info" id="dataInfo">
                     <!-- Data summary will be inserted here -->
@@ -85,22 +108,24 @@
                 </div>
 
                 <div class="action-buttons">
-                    <button id="downloadBtn" class="btn-secondary">그래프 다운로드 (PNG)</button>
-                    <button id="analyzeBtn" class="btn-primary" style="display: none;">📊 통계 분석 수행</button>
-                    <button id="resetBtn" class="btn-secondary">새로 시작</button>
+                    <button id="downloadBtn" class="btn-secondary">Download Chart (PNG)</button>
+                    <button id="downloadCsvBtn" class="btn-secondary" style="display: none;">📥 Download Extracted Data (CSV)</button>
+                    <button id="analyzeBtn" class="btn-primary" style="display: none;">📊 Perform Statistical Analysis</button>
+                    <button id="resetBtn" class="btn-secondary">Start Over</button>
                 </div>
             </section>
 
             <section class="analysis-section" id="analysisSection" style="display: none;">
-                <h2>📊 통계 분석 결과</h2>
+                <h2>📊 Statistical Analysis Results</h2>
                 
                 <div class="tabs">
-                    <button class="tab-button active" data-tab="descriptive">기술통계</button>
+                    <button class="tab-button active" data-tab="descriptive">Descriptive Statistics</button>
                     <button class="tab-button" data-tab="manova">MANOVA</button>
                     <button class="tab-button" data-tab="pca">PCA</button>
                     <button class="tab-button" data-tab="lda">LDA</button>
-                    <button class="tab-button" data-tab="pairwise">쌍별 검정</button>
-                    <button class="tab-button" data-tab="metrics">모음 공간 메트릭</button>
+                    <button class="tab-button" data-tab="statistical-plots">Statistical Plots</button>
+                    <button class="tab-button" data-tab="pairwise">Pairwise Tests</button>
+                    <button class="tab-button" data-tab="metrics">Vowel Space Metrics</button>
                 </div>
 
                 <div id="descriptive" class="tab-content active">
@@ -119,6 +144,10 @@
                     <!-- LDA results and plot will be inserted here -->
                 </div>
 
+                <div id="statistical-plots" class="tab-content">
+                    <!-- Statistical plots will be inserted here -->
+                </div>
+
                 <div id="pairwise" class="tab-content">
                     <!-- Pairwise test results will be inserted here -->
                 </div>
@@ -135,22 +164,22 @@
 
         <footer>
             <div class="info-section">
-                <h3>사용 방법</h3>
+                <h3>How to Use</h3>
                 <ol>
-                    <li>시각화 유형을 선택합니다 (정적/동적)</li>
-                    <li>데이터 파일을 업로드합니다</li>
-                    <li>결과 그래프를 확인하고 다운로드합니다</li>
+                    <li>Select visualization type (static/dynamic)</li>
+                    <li>Upload data file</li>
+                    <li>View and download the result chart</li>
                 </ol>
                 
-                <h3>데이터 형식</h3>
+                <h3>Data Format</h3>
                 <div class="format-examples">
                     <div class="format-box">
-                        <h4>CSV/TXT 예시 (자동 감지 가능)</h4>
+                        <h4>CSV/TXT Example (Auto-detection supported)</h4>
                         <pre>vowel,F1,F2,time
 i,300,2300,0.5
 e,450,2100,1.0
 a,700,1200,1.5</pre>
-                        <p class="note">다양한 컬럼명 사용 가능: f1/F1/first_formant, phone/vowel/phoneme 등</p>
+                        <p class="note">Various column names supported: f1/F1/first_formant, phone/vowel/phoneme, etc.</p>
                     </div>
                 </div>
             </div>
@@ -177,6 +206,20 @@ a,700,1200,1.5</pre>
 
         let currentPlot = null;
         let currentFiles = null;
+
+        // File input change handler to update text
+        fileInput.addEventListener('change', function() {
+            const fileUploadText = document.getElementById('fileUploadText');
+            if (this.files.length > 0) {
+                if (this.files.length === 1) {
+                    fileUploadText.textContent = this.files[0].name;
+                } else {
+                    fileUploadText.textContent = `${this.files.length} files selected`;
+                }
+            } else {
+                fileUploadText.textContent = 'No file selected';
+            }
+        });
 
         // Tab switching functionality
         document.querySelectorAll('.tab-button').forEach(button => {
@@ -207,7 +250,7 @@ a,700,1200,1.5</pre>
             
             const files = fileInput.files;
             if (files.length === 0) {
-                showError('파일을 선택해주세요.');
+                showError('Please select a file.');
                 return;
             }
 
@@ -248,10 +291,10 @@ a,700,1200,1.5</pre>
                         analyzeBtn.style.display = 'inline-block';
                     }
                 } else {
-                    showError(data.error || '파일 처리 중 오류가 발생했습니다.');
+                    showError(data.error || 'An error occurred while processing the file.');
                 }
             } catch (error) {
-                showError('서버와 통신 중 오류가 발생했습니다: ' + error.message);
+                showError('An error occurred while communicating with the server: ' + error.message);
             } finally {
                 showLoading(false);
             }
@@ -269,13 +312,25 @@ a,700,1200,1.5</pre>
                 if (response.ok && data.success) {
                     showResult(data);
                 } else {
-                    showError('예제 데이터를 불러오는 중 오류가 발생했습니다.');
+                    showError('An error occurred while loading the example data.');
                 }
             } catch (error) {
-                showError('서버와 통신 중 오류가 발생했습니다: ' + error.message);
+                showError('An error occurred while communicating with the server: ' + error.message);
             } finally {
                 showLoading(false);
             }
+        });
+
+        // Download example data button
+        const downloadExampleBtn = document.getElementById('downloadExampleBtn');
+        downloadExampleBtn.addEventListener('click', () => {
+            // Create a temporary link and trigger download
+            const link = document.createElement('a');
+            link.href = '/download-examples';
+            link.download = 'vowelspace_examples.zip';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         });
 
         downloadBtn.addEventListener('click', () => {
@@ -289,6 +344,17 @@ a,700,1200,1.5</pre>
             }
         });
 
+        // Download extracted CSV data button
+        const downloadCsvBtn = document.getElementById('downloadCsvBtn');
+        downloadCsvBtn.addEventListener('click', () => {
+            const link = document.createElement('a');
+            link.href = '/download-extracted-data';
+            link.download = 'extracted_vowel_formants.csv';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+
         resetBtn.addEventListener('click', () => {
             hideResult();
             hideError();
@@ -297,11 +363,12 @@ a,700,1200,1.5</pre>
             fileInput.value = '';
             currentFiles = null;
             analyzeBtn.style.display = 'none';
+            downloadCsvBtn.style.display = 'none';
         });
 
         analyzeBtn.addEventListener('click', async () => {
             if (!currentFiles || currentFiles.length === 0) {
-                showError('분석할 파일이 없습니다.');
+                showError('There is no file to analyze.');
                 return;
             }
 
@@ -327,35 +394,53 @@ a,700,1200,1.5</pre>
                 if (response.ok && data.success) {
                     showAnalysis(data);
                 } else {
-                    showError(data.error || '통계 분석 중 오류가 발생했습니다.');
+                    showError(data.error || 'An error occurred during statistical analysis.');
                 }
             } catch (error) {
-                showError('서버와 통신 중 오류가 발생했습니다: ' + error.message);
+                showError('An error occurred while communicating with the server: ' + error.message);
             } finally {
                 showLoading(false);
             }
         });
 
         function showResult(data) {
+            // Check if this is WAV/TextGrid data (has extracted data available)
+            const isWavData = data.data_source === 'wav_textgrid';
+            const downloadCsvBtn = document.getElementById('downloadCsvBtn');
+            
+            if (isWavData) {
+                downloadCsvBtn.style.display = 'inline-block';
+            } else {
+                downloadCsvBtn.style.display = 'none';
+            }
+            
             // Display data summary
             if (data.data_summary) {
                 const summary = data.data_summary;
-                let summaryHTML = '<h3>데이터 요약</h3><ul>';
-                summaryHTML += `<li><strong>총 데이터 포인트:</strong> ${summary.rows}</li>`;
+                let summaryHTML = '<h3>Data Summary</h3><ul>';
+                summaryHTML += `<li><strong>Total Data Points:</strong> ${summary.rows}</li>`;
                 
-                // 컬럼 감지 정보 표시
+                // Display column detection information
                 if (summary.column_detection && summary.column_detection.details) {
-                    summaryHTML += '<li><strong>자동 감지된 컬럼:</strong><ul>';
+                    summaryHTML += '<li><strong>Auto-detected Columns:</strong><ul>';
                     const details = summary.column_detection.details;
                     for (const [standardName, info] of Object.entries(details)) {
                         summaryHTML += `<li><strong>${standardName}</strong>: "${info.actual_name}"`;
                         
                         if (info.min !== undefined) {
-                            summaryHTML += ` (범위: ${Math.round(info.min)}-${Math.round(info.max)} Hz, 평균: ${Math.round(info.mean)} Hz)`;
+                            // Determine unit based on column type
+                            let unit = 'Hz';
+                            if (standardName === 'duration') {
+                                unit = 'ms';
+                            } else if (standardName === 'time') {
+                                unit = 's';
+                            }
+                            
+                            summaryHTML += ` (Range: ${Math.round(info.min)}-${Math.round(info.max)} ${unit}, Mean: ${Math.round(info.mean)} ${unit})`;
                         } else if (info.unique_count !== undefined) {
-                            summaryHTML += ` (고유값 ${info.unique_count}개)`;
+                            summaryHTML += ` (${info.unique_count} unique values)`;
                             if (info.sample_values && info.sample_values.length > 0) {
-                                summaryHTML += ` [예: ${info.sample_values.join(', ')}]`;
+                                summaryHTML += ` [e.g.: ${info.sample_values.join(', ')}]`;
                             }
                         }
                         summaryHTML += '</li>';
@@ -364,9 +449,9 @@ a,700,1200,1.5</pre>
                 }
                 
                 if (summary.vowels && summary.vowels.length > 0) {
-                    summaryHTML += `<li><strong>모음 종류:</strong> ${summary.vowels.join(', ')}</li>`;
+                    summaryHTML += `<li><strong>Vowel Types:</strong> ${summary.vowels.join(', ')}</li>`;
                 }
-                summaryHTML += `<li><strong>모든 컬럼:</strong> ${summary.columns.join(', ')}</li>`;
+                summaryHTML += `<li><strong>All Columns:</strong> ${summary.columns.join(', ')}</li>`;
                 summaryHTML += '</ul>';
                 dataInfo.innerHTML = summaryHTML;
             }
@@ -403,23 +488,23 @@ a,700,1200,1.5</pre>
 
             // Descriptive statistics
             if (analysis.descriptive) {
-                let html = '<h3>기술통계량</h3>';
+                let html = '<h3>Descriptive Statistics</h3>';
                 
                 // Show statistics for each grouping variable
                 for (const [groupVar, stats] of Object.entries(analysis.descriptive)) {
-                    html += `<h4>${groupVar} 기준</h4>`;
+                    html += `<h4>By ${groupVar}</h4>`;
                     
                     if (stats.by_group && Object.keys(stats.by_group).length > 0) {
                         for (const [group, groupStats] of Object.entries(stats.by_group)) {
                             html += `<h5>${group}</h5>`;
                             html += '<table class="stats-table"><thead><tr>';
-                            html += '<th>통계량</th><th>F1</th><th>F2</th></tr></thead><tbody>';
+                            html += '<th>Statistic</th><th>F1</th><th>F2</th></tr></thead><tbody>';
                             
                             if (groupStats.F1 && groupStats.F2) {
-                                html += `<tr><td>평균</td><td>${groupStats.F1.mean.toFixed(2)}</td><td>${groupStats.F2.mean.toFixed(2)}</td></tr>`;
-                                html += `<tr><td>표준편차</td><td>${groupStats.F1.std.toFixed(2)}</td><td>${groupStats.F2.std.toFixed(2)}</td></tr>`;
-                                html += `<tr><td>최소값</td><td>${groupStats.F1.min.toFixed(2)}</td><td>${groupStats.F2.min.toFixed(2)}</td></tr>`;
-                                html += `<tr><td>최대값</td><td>${groupStats.F1.max.toFixed(2)}</td><td>${groupStats.F2.max.toFixed(2)}</td></tr>`;
+                                html += `<tr><td>Mean</td><td>${groupStats.F1.mean.toFixed(2)}</td><td>${groupStats.F2.mean.toFixed(2)}</td></tr>`;
+                                html += `<tr><td>Std Dev</td><td>${groupStats.F1.std.toFixed(2)}</td><td>${groupStats.F2.std.toFixed(2)}</td></tr>`;
+                                html += `<tr><td>Min</td><td>${groupStats.F1.min.toFixed(2)}</td><td>${groupStats.F2.min.toFixed(2)}</td></tr>`;
+                                html += `<tr><td>Max</td><td>${groupStats.F1.max.toFixed(2)}</td><td>${groupStats.F2.max.toFixed(2)}</td></tr>`;
                             }
                             
                             html += '</tbody></table>';
@@ -432,20 +517,20 @@ a,700,1200,1.5</pre>
 
             // MANOVA results - handle multiple grouping variables
             if (analysis.manova && Object.keys(analysis.manova).length > 0) {
-                let html = '<h3>다변량 분산분석 (MANOVA)</h3>';
-                html += '<p>그룹 간 F1, F2의 통합적 차이를 검정합니다.</p>';
+                let html = '<h3>Multivariate Analysis of Variance (MANOVA)</h3>';
+                html += '<p>Tests for integrated differences in F1 and F2 between groups.</p>';
                 
                 for (const [groupVar, manovaResult] of Object.entries(analysis.manova)) {
                     if (manovaResult && !manovaResult.error) {
-                        html += `<h4>${groupVar} 기준</h4>`;
+                        html += `<h4>By ${groupVar}</h4>`;
                         
                         // Show formant-wise ANOVA results
                         if (manovaResult.formants) {
                             html += '<table class="stats-table"><thead><tr>';
-                            html += '<th>Formant</th><th>F-통계량</th><th>p-value</th><th>유의성</th></tr></thead><tbody>';
+                            html += '<th>Formant</th><th>F-statistic</th><th>p-value</th><th>Significance</th></tr></thead><tbody>';
                             
                             for (const [formant, result] of Object.entries(manovaResult.formants)) {
-                                const significant = result.significant ? '✓ 유의함' : '유의하지 않음';
+                                const significant = result.significant ? '✓ Significant' : 'Not significant';
                                 html += `<tr><td>${formant}</td><td>${result.f_statistic.toFixed(4)}</td>`;
                                 html += `<td>${result.p_value.toFixed(4)}</td><td>${significant} ${result.significance_level}</td></tr>`;
                             }
@@ -455,7 +540,7 @@ a,700,1200,1.5</pre>
                         
                         // Show multivariate test if available
                         if (manovaResult.multivariate) {
-                            html += '<p class="note"><strong>다변량 검정:</strong> ';
+                            html += '<p class="note"><strong>Multivariate Test:</strong> ';
                             if (manovaResult.multivariate.test) {
                                 html += `${manovaResult.multivariate.test} = ${manovaResult.multivariate.statistic.toFixed(4)}`;
                             }
@@ -473,11 +558,11 @@ a,700,1200,1.5</pre>
             // PCA results
             if (analysis.pca && plots.pca) {
                 const pca = analysis.pca;
-                let html = '<h3>주성분 분석 (PCA)</h3>';
-                html += '<p>F1과 F2의 변동을 주성분으로 요약합니다.</p>';
+                let html = '<h3>Principal Component Analysis (PCA)</h3>';
+                html += '<p>Summarizes variation in F1 and F2 into principal components.</p>';
                 
                 html += '<table class="stats-table"><thead><tr>';
-                html += '<th>주성분</th><th>설명된 분산 (%)</th></tr></thead><tbody>';
+                html += '<th>Principal Component</th><th>Explained Variance (%)</th></tr></thead><tbody>';
                 
                 pca.explained_variance_ratio.forEach((ratio, idx) => {
                     html += `<tr><td>PC${idx + 1}</td><td>${(ratio * 100).toFixed(2)}%</td></tr>`;
@@ -497,8 +582,8 @@ a,700,1200,1.5</pre>
 
             // LDA results - handle multiple LDA analyses
             if (analysis.lda && Object.keys(analysis.lda).length > 0) {
-                let html = '<h3>선형 판별 분석 (LDA)</h3>';
-                html += '<p>그룹을 최대한 분리하는 판별함수를 찾습니다.</p>';
+                let html = '<h3>Linear Discriminant Analysis (LDA)</h3>';
+                html += '<p>Finds discriminant functions that maximally separate groups.</p>';
                 
                 // Show LDA for each grouping variable
                 for (const [groupVar, ldaResult] of Object.entries(analysis.lda)) {
@@ -506,13 +591,13 @@ a,700,1200,1.5</pre>
                         const plotKey = `lda_${groupVar}`;
                         const plotId = `ldaPlot_${groupVar}`;
                         
-                        html += `<h4>${groupVar} 기준 LDA</h4>`;
+                        html += `<h4>LDA by ${groupVar}</h4>`;
                         html += '<table class="stats-table"><thead><tr>';
-                        html += '<th>메트릭</th><th>값</th></tr></thead><tbody>';
+                        html += '<th>Metric</th><th>Value</th></tr></thead><tbody>';
                         
-                        html += `<tr><td>판별함수 개수</td><td>${ldaResult.n_components}</td></tr>`;
-                        html += `<tr><td>분류 정확도</td><td>${(ldaResult.accuracy * 100).toFixed(2)}%</td></tr>`;
-                        html += `<tr><td>그룹 수</td><td>${ldaResult.n_groups}</td></tr>`;
+                        html += `<tr><td>Number of Discriminants</td><td>${ldaResult.n_components}</td></tr>`;
+                        html += `<tr><td>Classification Accuracy</td><td>${(ldaResult.accuracy * 100).toFixed(2)}%</td></tr>`;
+                        html += `<tr><td>Number of Groups</td><td>${ldaResult.n_groups}</td></tr>`;
                         
                         html += '</tbody></table>';
                         
@@ -539,14 +624,177 @@ a,700,1200,1.5</pre>
                 }, 100);
             }
 
+            // Statistical Plots
+            if (plots && Object.keys(plots).length > 0) {
+                let html = '<h3>Statistical Plots</h3>';
+                html += '<p>Visualize data distributions through various statistical graphs.</p>';
+                
+                // Box plots
+                const boxplots = Object.keys(plots).filter(k => k.startsWith('boxplot_'));
+                if (boxplots.length > 0) {
+                    html += '<h4>📦 Box Plot</h4>';
+                    html += '<p>Visualizes the distribution and outliers of formant values. The box represents the 25-75 percentile range, and the line indicates the median.</p>';
+                    boxplots.forEach(plotKey => {
+                        const groupVar = plotKey.replace('boxplot_', '');
+                        const plotId = `plot_${plotKey}`;
+                        html += `<h5>By ${groupVar}</h5>`;
+                        html += `<div id="${plotId}" class="plot-container"></div>`;
+                    });
+                }
+                
+                // Violin plots
+                const violinPlots = Object.keys(plots).filter(k => k.startsWith('violin_'));
+                if (violinPlots.length > 0) {
+                    html += '<h4>🎻 Violin Plot</h4>';
+                    html += '<p>Adds probability density to box plots to show the shape of data distribution in more detail.</p>';
+                    violinPlots.forEach(plotKey => {
+                        const groupVar = plotKey.replace('violin_', '');
+                        const plotId = `plot_${plotKey}`;
+                        html += `<h5>By ${groupVar}</h5>`;
+                        html += `<div id="${plotId}" class="plot-container"></div>`;
+                    });
+                }
+                
+                // Density Plots (Histograms)
+                const histograms = Object.keys(plots).filter(k => k.startsWith('histogram_'));
+                if (histograms.length > 0) {
+                    html += '<h4>📊 Density Plot</h4>';
+                    html += '<p>Shows the <strong>probability density distribution</strong> of F1 and F2 values as smooth curves. ';
+                    html += 'Provides a more continuous and smooth distribution shape than histograms, representing the probability of each formant value. ';
+                    html += 'The height of the curve indicates the density (probability) of that value, with peaks representing the most frequent values.</p>';
+                    histograms.forEach(plotKey => {
+                        const groupVar = plotKey.replace('histogram_', '');
+                        const plotId = `plot_${plotKey}`;
+                        html += `<h5>By ${groupVar}</h5>`;
+                        html += `<div id="${plotId}" class="plot-container"></div>`;
+                    });
+                }
+                
+                // Mean comparison plots
+                const meanPlots = Object.keys(plots).filter(k => k.startsWith('mean_comparison_'));
+                if (meanPlots.length > 0) {
+                    html += '<h4>📈 Mean Comparison</h4>';
+                    html += '<p>Compares mean formant values and standard errors for each group.</p>';
+                    meanPlots.forEach(plotKey => {
+                        const groupVar = plotKey.replace('mean_comparison_', '');
+                        const plotId = `plot_${plotKey}`;
+                        html += `<h5>By ${groupVar}</h5>`;
+                        html += `<div id="${plotId}" class="plot-container"></div>`;
+                    });
+                }
+                
+                // Pairwise comparison plots
+                const pairwisePlots = Object.keys(plots).filter(k => k.startsWith('pairwise_'));
+                if (pairwisePlots.length > 0) {
+                    html += '<h4>🔬 Pairwise Comparisons</h4>';
+                    html += '<p>Shows statistical significance of differences between each pair of groups.</p>';
+                    html += '<p style="font-size: 0.9em; color: #666;">*** p < 0.001, ** p < 0.01, * p < 0.05, ns = not significant</p>';
+                    pairwisePlots.forEach(plotKey => {
+                        const groupVar = plotKey.replace('pairwise_', '');
+                        const plotId = `plot_${plotKey}`;
+                        html += `<h5>By ${groupVar}</h5>`;
+                        html += `<div id="${plotId}" class="plot-container"></div>`;
+                    });
+                }
+                
+                // Scatter matrix
+                if (plots.scatter_matrix) {
+                    html += '<h4>🔲 Scatter Matrix</h4>';
+                    html += '<div class="info-box" style="background: #e7f3ff; padding: 1.5rem; border-radius: 8px; margin-bottom: 1rem;">';
+                    html += '<h5 style="margin-top: 0; color: #0066cc;">📊 What is a Scatter Matrix?</h5>';
+                    html += '<p style="line-height: 1.6;">A scatter matrix is a visualization tool that shows <strong>pairwise relationships</strong> between multiple variables at a glance.</p>';
+                    
+                    html += '<h5 style="color: #0066cc; margin-top: 1rem;">🔍 Diagonal (F1 vs F1, F2 vs F2)</h5>';
+                    html += '<ul style="line-height: 1.8;">';
+                    html += '<li><strong>F1 vs F1:</strong> Shows the <strong>distribution (histogram)</strong> of F1 values. You can see how F1 values are distributed for each vowel.</li>';
+                    html += '<li><strong>F2 vs F2:</strong> Shows the <strong>distribution (histogram)</strong> of F2 values. You can see how F2 values are distributed for each vowel.</li>';
+                    html += '<li><strong>Meaning:</strong> Understand distribution patterns of a single variable - whether it is normally distributed, has multiple peaks, etc.</li>';
+                    html += '</ul>';
+                    
+                    html += '<h5 style="color: #0066cc; margin-top: 1rem;">📈 Off-diagonal (F1 vs F2)</h5>';
+                    html += '<ul style="line-height: 1.8;">';
+                    html += '<li><strong>F1 vs F2 scatter plot:</strong> Shows the <strong>correlation</strong> between the two formants.</li>';
+                    html += '<li><strong>Relationship with vowels:</strong> See how each vowel is separated in the F1-F2 space</li>';
+                    html += '<li><strong>Cluster patterns:</strong> Identify whether same vowels cluster together or overlap with other vowels</li>';
+                    html += '</ul>';
+                    
+                    html += '<h5 style="color: #0066cc; margin-top: 1rem;">🎯 Application in Vowel Analysis</h5>';
+                    html += '<ul style="line-height: 1.8;">';
+                    html += '<li><strong>Vowel separation:</strong> Are vowels clearly distinguished in the F1-F2 space?</li>';
+                    html += '<li><strong>Variability comparison:</strong> Is the variability in F1 or F2 greater?</li>';
+                    html += '<li><strong>Correlation patterns:</strong> Does F2 increase when F1 increases for certain vowels? (positive correlation)</li>';
+                    html += '<li><strong>Outlier detection:</strong> Discover values that are far from other data points</li>';
+                    html += '</ul>';
+                    
+                    html += '<p style="margin-top: 1rem; padding: 1rem; background: #fff3cd; border-radius: 6px; border-left: 4px solid #ffc107;">';
+                    html += '💡 <strong>Interpretation Tip:</strong> Color represents vowels. If the same color (same vowel) clusters in one area, the vowel is stably pronounced, ';
+                    html += 'and if scattered in multiple places, there is high pronunciation variation. If vowel clusters are well separated in the F1 vs F2 scatter plot, ';
+                    html += 'they are acoustically distinct.';
+                    html += '</p>';
+                    html += '</div>';
+                    
+                    html += '<div id="plot_scatter_matrix" class="plot-container"></div>';
+                }
+                
+                document.getElementById('statistical-plots').innerHTML = html;
+                
+                // Render all statistical plots
+                setTimeout(() => {
+                    // Render boxplots
+                    boxplots.forEach(plotKey => {
+                        const plotId = `plot_${plotKey}`;
+                        if (plots[plotKey]) {
+                            Plotly.newPlot(plotId, plots[plotKey].data, plots[plotKey].layout, {responsive: true});
+                        }
+                    });
+                    
+                    // Render violin plots
+                    violinPlots.forEach(plotKey => {
+                        const plotId = `plot_${plotKey}`;
+                        if (plots[plotKey]) {
+                            Plotly.newPlot(plotId, plots[plotKey].data, plots[plotKey].layout, {responsive: true});
+                        }
+                    });
+                    
+                    // Render histograms
+                    histograms.forEach(plotKey => {
+                        const plotId = `plot_${plotKey}`;
+                        if (plots[plotKey]) {
+                            Plotly.newPlot(plotId, plots[plotKey].data, plots[plotKey].layout, {responsive: true});
+                        }
+                    });
+                    
+                    // Render mean comparison plots
+                    meanPlots.forEach(plotKey => {
+                        const plotId = `plot_${plotKey}`;
+                        if (plots[plotKey]) {
+                            Plotly.newPlot(plotId, plots[plotKey].data, plots[plotKey].layout, {responsive: true});
+                        }
+                    });
+                    
+                    // Render pairwise comparison plots
+                    pairwisePlots.forEach(plotKey => {
+                        const plotId = `plot_${plotKey}`;
+                        if (plots[plotKey]) {
+                            Plotly.newPlot(plotId, plots[plotKey].data, plots[plotKey].layout, {responsive: true});
+                        }
+                    });
+                    
+                    // Render scatter matrix
+                    if (plots.scatter_matrix) {
+                        Plotly.newPlot('plot_scatter_matrix', plots.scatter_matrix.data, plots.scatter_matrix.layout, {responsive: true});
+                    }
+                }, 100);
+            }
+
             // Pairwise tests - handle multiple grouping variables
             if (analysis.pairwise && Object.keys(analysis.pairwise).length > 0) {
-                let html = '<h3>쌍별 t-검정</h3>';
-                html += '<p>모든 그룹 쌍에 대해 F1, F2의 차이를 검정합니다.</p>';
+                let html = '<h3>Pairwise t-tests</h3>';
+                html += '<p>Tests differences in F1 and F2 for all group pairs.</p>';
                 
                 for (const [groupVar, pairwiseResult] of Object.entries(analysis.pairwise)) {
                     if (pairwiseResult && !pairwiseResult.error && pairwiseResult.comparisons) {
-                        html += `<h4>${groupVar} 기준</h4>`;
+                        html += `<h4>By ${groupVar}</h4>`;
                         
                         // Group comparisons by formant
                         const byFormant = { F1: {}, F2: {} };
@@ -562,12 +810,12 @@ a,700,1200,1.5</pre>
                             if (Object.keys(comparisons).length > 0) {
                                 html += `<h5>${formant}</h5>`;
                                 html += '<table class="stats-table"><thead><tr>';
-                                html += '<th>비교</th><th>t-통계량</th><th>p-value</th><th>Cohen\'s d</th><th>효과크기</th></tr></thead><tbody>';
+                                html += '<th>Comparison</th><th>t-statistic</th><th>p-value</th><th>Cohen\'s d</th><th>Effect Size</th></tr></thead><tbody>';
                                 
                                 for (const [pair, result] of Object.entries(comparisons)) {
-                                    const effectSize = Math.abs(result.cohens_d) < 0.2 ? '작음' : 
-                                                      Math.abs(result.cohens_d) < 0.5 ? '중간' : 
-                                                      Math.abs(result.cohens_d) < 0.8 ? '큼' : '매우 큼';
+                                    const effectSize = Math.abs(result.cohens_d) < 0.2 ? 'Small' : 
+                                                      Math.abs(result.cohens_d) < 0.5 ? 'Medium' : 
+                                                      Math.abs(result.cohens_d) < 0.8 ? 'Large' : 'Very Large';
                                     const significant = result.significant ? ' class="significant"' : '';
                                     
                                     html += `<tr${significant}><td>${pair}</td>`;
@@ -583,40 +831,40 @@ a,700,1200,1.5</pre>
                     }
                 }
                 
-                html += '<p class="note">* p < 0.05인 경우 강조 표시</p>';
+                html += '<p class="note">* Highlighted when p < 0.05</p>';
                 
                 document.getElementById('pairwise').innerHTML = html;
             }
 
             // Vowel space metrics - handle multiple grouping variables
             if (analysis.vowel_space && Object.keys(analysis.vowel_space).length > 0) {
-                let html = '<h3>모음 공간 메트릭</h3>';
-                html += '<p>모음 공간의 크기와 분산도를 정량화합니다.</p>';
+                let html = '<h3>Vowel Space Metrics</h3>';
+                html += '<p>Quantifies the size and dispersion of the vowel space.</p>';
                 
                 for (const [groupVar, metricsResult] of Object.entries(analysis.vowel_space)) {
                     if (metricsResult) {
-                        html += `<h4>${groupVar} 기준</h4>`;
+                        html += `<h4>By ${groupVar}</h4>`;
                         
                         // Overall metrics
                         if (metricsResult.overall && !metricsResult.overall.error) {
                             const metrics = metricsResult.overall;
-                            html += '<h5>전체</h5>';
+                            html += '<h5>Overall</h5>';
                             html += '<table class="stats-table"><thead><tr>';
-                            html += '<th>메트릭</th><th>값</th><th>설명</th></tr></thead><tbody>';
+                            html += '<th>Metric</th><th>Value</th><th>Description</th></tr></thead><tbody>';
                             
                             if (metrics.area !== undefined) {
-                                html += `<tr><td>모음 공간 면적</td><td>${metrics.area.toFixed(2)}</td>`;
-                                html += '<td>모음들이 형성하는 다각형의 면적 (Hz²)</td></tr>';
+                                html += `<tr><td>Vowel Space Area</td><td>${metrics.area.toFixed(2)}</td>`;
+                                html += '<td>Area of the polygon formed by vowels (Hz²)</td></tr>';
                             }
                             
                             if (metrics.centroid_F1 !== undefined && metrics.centroid_F2 !== undefined) {
-                                html += `<tr><td>중심점</td><td>F1: ${metrics.centroid_F1.toFixed(2)}, F2: ${metrics.centroid_F2.toFixed(2)}</td>`;
-                                html += '<td>모든 모음의 평균 위치</td></tr>';
+                                html += `<tr><td>Centroid</td><td>F1: ${metrics.centroid_F1.toFixed(2)}, F2: ${metrics.centroid_F2.toFixed(2)}</td>`;
+                                html += '<td>Average position of all vowels</td></tr>';
                             }
                             
                             if (metrics.dispersion !== undefined) {
-                                html += `<tr><td>분산도</td><td>${metrics.dispersion.toFixed(2)}</td>`;
-                                html += '<td>중심점으로부터의 평균 거리</td></tr>';
+                                html += `<tr><td>Dispersion</td><td>${metrics.dispersion.toFixed(2)}</td>`;
+                                html += '<td>Average distance from centroid</td></tr>';
                             }
                             
                             html += '</tbody></table>';
@@ -628,14 +876,14 @@ a,700,1200,1.5</pre>
                                 if (metrics && !metrics.error) {
                                     html += `<h5>${group}</h5>`;
                                     html += '<table class="stats-table"><thead><tr>';
-                                    html += '<th>메트릭</th><th>값</th></tr></thead><tbody>';
+                                    html += '<th>Metric</th><th>Value</th></tr></thead><tbody>';
                                     
                                     if (metrics.area !== undefined) {
-                                        html += `<tr><td>면적</td><td>${metrics.area.toFixed(2)} Hz²</td></tr>`;
+                                        html += `<tr><td>Area</td><td>${metrics.area.toFixed(2)} Hz²</td></tr>`;
                                     }
                                     
                                     if (metrics.dispersion !== undefined) {
-                                        html += `<tr><td>분산도</td><td>${metrics.dispersion.toFixed(2)}</td></tr>`;
+                                        html += `<tr><td>Dispersion</td><td>${metrics.dispersion.toFixed(2)}</td></tr>`;
                                     }
                                     
                                     html += '</tbody></table>';

@@ -8,6 +8,22 @@ import numpy as np
 import json
 from scipy import stats
 
+# Custom color palette - dark colors without yellow
+CUSTOM_COLORS = [
+    '#e41a1c',  # Red
+    '#377eb8',  # Blue
+    '#4daf4a',  # Green
+    '#984ea3',  # Purple
+    '#ff7f00',  # Orange
+    '#a65628',  # Brown
+    '#f781bf',  # Pink
+    '#999999',  # Gray
+    '#1b9e77',  # Teal
+    '#d95f02',  # Dark Orange
+    '#7570b3',  # Dark Purple
+    '#e7298a',  # Magenta
+]
+
 
 def calculate_ellipse(x, y, n_std=2.0, n_points=100):
     """
@@ -83,7 +99,7 @@ def create_static_vowel_space(df, scale='Hz'):
         has_language = 'native_language' in df.columns
         
         # Color palette
-        colors = px.colors.qualitative.Set1
+        colors = CUSTOM_COLORS
         
         if has_vowel and has_speaker and has_language:
             # 3-level grouping: Language > Speaker > Vowel
@@ -111,9 +127,9 @@ def create_static_vowel_space(df, scale='Hz'):
                             x=vowel_data['F2'],
                             y=vowel_data['F1'],
                             mode='markers',
-                            name=f"{lang} | {speaker} | {vowel}",
-                            legendgroup=lang,
-                            legendgrouptitle=dict(text=lang),
+                            name=vowel,
+                            legendgroup=f"{lang}_{speaker}",
+                            legendgrouptitle=dict(text=f"<b>{lang}</b> - {speaker}"),
                             marker=dict(
                                 size=10,
                                 color=colors[color_idx % len(colors)],
@@ -147,9 +163,9 @@ def create_static_vowel_space(df, scale='Hz'):
                         x=vowel_data['F2'],
                         y=vowel_data['F1'],
                         mode='markers',
-                        name=f"{speaker} | {vowel}",
+                        name=vowel,
                         legendgroup=speaker,
-                        legendgrouptitle=dict(text=speaker),
+                        legendgrouptitle=dict(text=f"<b>{speaker}</b>"),
                         marker=dict(
                             size=10,
                             color=colors[color_idx % len(colors)],
@@ -183,9 +199,9 @@ def create_static_vowel_space(df, scale='Hz'):
                         x=vowel_data['F2'],
                         y=vowel_data['F1'],
                         mode='markers',
-                        name=f"{lang} | {vowel}",
+                        name=vowel,
                         legendgroup=lang,
-                        legendgrouptitle=dict(text=lang),
+                        legendgrouptitle=dict(text=f"<b>{lang}</b>"),
                         marker=dict(
                             size=10,
                             color=colors[color_idx % len(colors)],
@@ -276,7 +292,7 @@ def create_static_vowel_space(df, scale='Hz'):
                 borderwidth=1,
                 itemclick='toggle',
                 itemdoubleclick='toggleothers',
-                tracegroupgap=5
+                tracegroupgap=10
             )
         )
         
@@ -323,7 +339,7 @@ def create_dynamic_formant_trajectory(df, scale='Hz'):
     has_speaker = 'speaker' in df.columns
     has_language = 'native_language' in df.columns
     
-    colors = px.colors.qualitative.Set1
+    colors = CUSTOM_COLORS
     color_idx = 0
     
     if has_vowel and has_speaker and has_language:
@@ -352,9 +368,9 @@ def create_dynamic_formant_trajectory(df, scale='Hz'):
                             x=vowel_data['F2'],
                             y=vowel_data['F1'],
                             mode='lines+markers',
-                            name=f"{lang} | {speaker} | {vowel}",
-                            legendgroup=lang,
-                            legendgrouptitle=dict(text=lang),
+                            name=vowel,
+                            legendgroup=f"{lang}_{speaker}",
+                            legendgrouptitle=dict(text=f"<b>{lang}</b> - {speaker}"),
                             line=dict(color=colors[color_idx % len(colors)], width=2),
                             marker=dict(size=8, opacity=0.7),
                             text=hover_text,
@@ -384,9 +400,9 @@ def create_dynamic_formant_trajectory(df, scale='Hz'):
                         x=vowel_data['F2'],
                         y=vowel_data['F1'],
                         mode='lines+markers',
-                        name=f"{speaker} | {vowel}",
+                        name=vowel,
                         legendgroup=speaker,
-                        legendgrouptitle=dict(text=speaker),
+                        legendgrouptitle=dict(text=f"<b>{speaker}</b>"),
                         line=dict(color=colors[color_idx % len(colors)], width=2),
                         marker=dict(size=8, opacity=0.7),
                         text=hover_text,
@@ -474,7 +490,7 @@ def create_dynamic_formant_trajectory(df, scale='Hz'):
             borderwidth=1,
             itemclick='toggle',
             itemdoubleclick='toggleothers',
-            tracegroupgap=5
+            tracegroupgap=10
         )
     )
     
@@ -561,9 +577,9 @@ def create_vowel_space_with_ellipses(df, confidence=0.95, show_points=True):
     # Convert confidence to number of standard deviations
     # 95% ≈ 2 std, 99% ≈ 2.58 std
     if confidence >= 0.99:
-        n_std = 2.58
+        n_std = 1.0
     elif confidence >= 0.95:
-        n_std = 2.0
+        n_std = 1.0
     else:
         n_std = 1.0
     
@@ -574,7 +590,7 @@ def create_vowel_space_with_ellipses(df, confidence=0.95, show_points=True):
         has_speaker = 'speaker' in df.columns
         has_language = 'native_language' in df.columns
         
-        colors = px.colors.qualitative.Set1
+        colors = CUSTOM_COLORS
         
         if has_vowel and has_speaker and has_language:
             # Group by Language > Speaker > Vowel with ellipses
@@ -937,11 +953,11 @@ def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True
         # Convert confidence level to standard deviations
         # 95% ≈ 2 std, 99% ≈ 3 std
         if confidence_level >= 0.99:
-            n_std = 3.0
+            n_std = 1.0
         elif confidence_level >= 0.95:
-            n_std = 2.0
+            n_std = 1.0
         else:
-            n_std = 1.5
+            n_std = 1.0
         
         fig = go.Figure()
         
@@ -950,7 +966,7 @@ def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True
         has_speaker = 'speaker' in df.columns
         has_language = 'native_language' in df.columns
         
-        colors = px.colors.qualitative.Set1
+        colors = CUSTOM_COLORS
         color_idx = 0
         
         if has_vowel and has_speaker and has_language:
@@ -975,16 +991,16 @@ def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True
                             )
                             
                             if ellipse_x is not None:
+                                # Create hierarchical legend group: lang > speaker > individual vowel
                                 fig.add_trace(go.Scatter(
                                     x=ellipse_x,
                                     y=ellipse_y,
                                     mode='lines',
-                                    name=f"{lang} | {speaker} | {vowel}",
-                                    legendgroup=lang,
-                                    legendgrouptitle=dict(text=lang),
+                                    name=vowel,
+                                    legendgroup=f"{lang}_{speaker}",
+                                    legendgrouptitle=dict(text=f"{lang} - {speaker}"),
                                     line=dict(color=color, width=2),
-                                    fill='toself',
-                                    fillcolor=f'rgba({int(color[4:-1].split(",")[0])},{int(color[4:-1].split(",")[1])},{int(color[4:-1].split(",")[2])},0.1)' if color.startswith('rgb') else color,
+                                    fill='none',
                                     hoverinfo='name'
                                 ))
                             
@@ -994,8 +1010,8 @@ def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True
                                     x=vowel_data['F2'],
                                     y=vowel_data['F1'],
                                     mode='markers',
-                                    name=f"{lang} | {speaker} | {vowel} (points)",
-                                    legendgroup=lang,
+                                    name=f"{vowel} (points)",
+                                    legendgroup=f"{lang}_{speaker}",
                                     showlegend=False,
                                     marker=dict(size=5, color=color, opacity=0.5),
                                     hovertemplate=f"<b>{vowel}</b><br>Speaker: {speaker}<br>Language: {lang}<br>F1: %{{y:.0f}} Hz<br>F2: %{{x:.0f}} Hz<extra></extra>"
@@ -1025,12 +1041,11 @@ def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True
                                 x=ellipse_x,
                                 y=ellipse_y,
                                 mode='lines',
-                                name=f"{speaker} | {vowel}",
+                                name=vowel,
                                 legendgroup=speaker,
                                 legendgrouptitle=dict(text=speaker),
                                 line=dict(color=color, width=2),
-                                fill='toself',
-                                fillcolor=f'rgba({color[4:-1]},0.1)' if color.startswith('rgb') else color,
+                                fill='none',
                                 hoverinfo='name'
                             ))
                         
@@ -1039,7 +1054,7 @@ def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True
                                 x=vowel_data['F2'],
                                 y=vowel_data['F1'],
                                 mode='markers',
-                                name=f"{speaker} | {vowel} (points)",
+                                name=f"{vowel} (points)",
                                 legendgroup=speaker,
                                 showlegend=False,
                                 marker=dict(size=5, color=color, opacity=0.5),
@@ -1069,8 +1084,7 @@ def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True
                             mode='lines',
                             name=vowel,
                             line=dict(color=color, width=2),
-                            fill='toself',
-                            fillcolor=f'rgba({color[4:-1]},0.1)' if color.startswith('rgb') else color,
+                            fill='none',
                             hoverinfo='name'
                         ))
                     
@@ -1085,15 +1099,15 @@ def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True
                             hovertemplate=f"<b>{vowel}</b><br>F1: %{{y:.0f}} Hz<br>F2: %{{x:.0f}} Hz<extra></extra>"
                         ))
         
-        # Invert axes
+        # Invert axes and set fixed ranges
         fig.update_xaxes(
-            autorange='reversed',
+            range=[2700, 600],  # F2: 2700 to 600 (reversed)
             title=f'F2 ({scale})',
             showgrid=True,
             gridcolor='lightgray'
         )
         fig.update_yaxes(
-            autorange='reversed',
+            range=[1200, 100],  # F1: 1200 to 100 (reversed)
             title=f'F1 ({scale})',
             showgrid=True,
             gridcolor='lightgray'
@@ -1156,7 +1170,7 @@ def create_pca_plot(df_pca, pca_results, scale='Hz'):
         has_speaker = 'speaker' in df_pca.columns
         has_language = 'native_language' in df_pca.columns
         
-        colors = px.colors.qualitative.Set1
+        colors = CUSTOM_COLORS
         
         if has_vowel and has_speaker and has_language:
             # 3-level grouping
@@ -1271,7 +1285,7 @@ def create_lda_plot(df_lda, lda_results, group_by='vowel', scale='Hz'):
     try:
         fig = go.Figure()
         
-        colors = px.colors.qualitative.Set1
+        colors = CUSTOM_COLORS
         
         if group_by in df_lda.columns:
             for idx, group in enumerate(sorted(df_lda[group_by].unique())):
@@ -1328,3 +1342,615 @@ def create_lda_plot(df_lda, lda_results, group_by='vowel', scale='Hz'):
         import traceback
         print(traceback.format_exc())
         return None
+
+
+def create_boxplot(df, group_by='vowel', scale='Hz'):
+    """
+    Create box plots for F1 and F2 by group
+    
+    Args:
+        df: DataFrame with F1, F2 columns
+        group_by: Column to group by (default: 'vowel')
+        scale: Frequency scale label
+    
+    Returns:
+        JSON representation of the plot
+    """
+    if df is None or df.empty or group_by not in df.columns:
+        return None
+    
+    try:
+        from plotly.subplots import make_subplots
+        
+        # Create subplots for F1 and F2
+        fig = make_subplots(
+            rows=1, cols=2,
+            subplot_titles=(f'F1 by {group_by}', f'F2 by {group_by}'),
+            horizontal_spacing=0.15
+        )
+        
+        colors = CUSTOM_COLORS
+        groups = sorted(df[group_by].unique())
+        
+        for i, group in enumerate(groups):
+            group_data = df[df[group_by] == group]
+            color = colors[i % len(colors)]
+            
+            # F1 boxplot
+            fig.add_trace(
+                go.Box(
+                    y=group_data['F1'],
+                    name=str(group),
+                    marker_color=color,
+                    showlegend=False,
+                    boxmean='sd'  # Show mean and standard deviation
+                ),
+                row=1, col=1
+            )
+            
+            # F2 boxplot
+            fig.add_trace(
+                go.Box(
+                    y=group_data['F2'],
+                    name=str(group),
+                    marker_color=color,
+                    showlegend=True,
+                    legendgroup=str(group),
+                    boxmean='sd'
+                ),
+                row=1, col=2
+            )
+        
+        fig.update_layout(
+            title=f'Formant Distribution by {group_by}',
+            height=500,
+            width=1000,
+            plot_bgcolor='white',
+            font=dict(size=12),
+            showlegend=True,
+            legend=dict(
+                title=group_by,
+                orientation='v',
+                yanchor='top',
+                y=1,
+                xanchor='left',
+                x=1.02
+            )
+        )
+        
+        fig.update_yaxes(title_text=f"F1 ({scale})", row=1, col=1, showgrid=True, gridcolor='lightgray')
+        fig.update_yaxes(title_text=f"F2 ({scale})", row=1, col=2, showgrid=True, gridcolor='lightgray')
+        fig.update_xaxes(title_text=group_by, row=1, col=1)
+        fig.update_xaxes(title_text=group_by, row=1, col=2)
+        
+        return json.loads(fig.to_json())
+    
+    except Exception as e:
+        print(f"Error creating boxplot: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return None
+
+
+def create_violin_plot(df, group_by='vowel', scale='Hz'):
+    """
+    Create violin plots for F1 and F2 by group
+    
+    Args:
+        df: DataFrame with F1, F2 columns
+        group_by: Column to group by (default: 'vowel')
+        scale: Frequency scale label
+    
+    Returns:
+        JSON representation of the plot
+    """
+    if df is None or df.empty or group_by not in df.columns:
+        return None
+    
+    try:
+        from plotly.subplots import make_subplots
+        
+        fig = make_subplots(
+            rows=1, cols=2,
+            subplot_titles=(f'F1 Distribution by {group_by}', f'F2 Distribution by {group_by}'),
+            horizontal_spacing=0.15
+        )
+        
+        colors = CUSTOM_COLORS
+        groups = sorted(df[group_by].unique())
+        
+        for i, group in enumerate(groups):
+            group_data = df[df[group_by] == group]
+            color = colors[i % len(colors)]
+            
+            # F1 violin
+            fig.add_trace(
+                go.Violin(
+                    y=group_data['F1'],
+                    name=str(group),
+                    fillcolor=color,
+                    line_color='black',
+                    showlegend=False,
+                    box_visible=True,
+                    meanline_visible=True
+                ),
+                row=1, col=1
+            )
+            
+            # F2 violin
+            fig.add_trace(
+                go.Violin(
+                    y=group_data['F2'],
+                    name=str(group),
+                    fillcolor=color,
+                    line_color='black',
+                    showlegend=True,
+                    legendgroup=str(group),
+                    box_visible=True,
+                    meanline_visible=True
+                ),
+                row=1, col=2
+            )
+        
+        fig.update_layout(
+            title=f'Formant Distribution (Violin Plot) by {group_by}',
+            height=500,
+            width=1000,
+            plot_bgcolor='white',
+            font=dict(size=12),
+            showlegend=True,
+            legend=dict(
+                title=group_by,
+                orientation='v',
+                yanchor='top',
+                y=1,
+                xanchor='left',
+                x=1.02
+            )
+        )
+        
+        fig.update_yaxes(title_text=f"F1 ({scale})", row=1, col=1, showgrid=True, gridcolor='lightgray')
+        fig.update_yaxes(title_text=f"F2 ({scale})", row=1, col=2, showgrid=True, gridcolor='lightgray')
+        fig.update_xaxes(title_text=group_by, row=1, col=1)
+        fig.update_xaxes(title_text=group_by, row=1, col=2)
+        
+        return json.loads(fig.to_json())
+    
+    except Exception as e:
+        print(f"Error creating violin plot: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return None
+
+
+def create_histogram(df, group_by='vowel', scale='Hz'):
+    """
+    Create density plots for F1 and F2 distributions
+    
+    Args:
+        df: DataFrame with F1, F2 columns
+        group_by: Column to group by (default: 'vowel')
+        scale: Frequency scale label
+    
+    Returns:
+        JSON representation of the plot
+    """
+    if df is None or df.empty:
+        return None
+    
+    try:
+        from plotly.subplots import make_subplots
+        from scipy.stats import gaussian_kde
+        
+        fig = make_subplots(
+            rows=1, cols=2,
+            subplot_titles=('F1 Distribution (Density)', 'F2 Distribution (Density)'),
+            horizontal_spacing=0.15
+        )
+        
+        if group_by and group_by in df.columns:
+            colors = CUSTOM_COLORS
+            groups = sorted(df[group_by].unique())
+            
+            for i, group in enumerate(groups):
+                group_data = df[df[group_by] == group]
+                color = colors[i % len(colors)]
+                
+                # F1 density plot
+                if len(group_data['F1'].dropna()) > 1:
+                    f1_values = group_data['F1'].dropna().values
+                    kde_f1 = gaussian_kde(f1_values)
+                    x_f1 = np.linspace(f1_values.min(), f1_values.max(), 200)
+                    y_f1 = kde_f1(x_f1)
+                    
+                    fig.add_trace(
+                        go.Scatter(
+                            x=x_f1,
+                            y=y_f1,
+                            name=str(group),
+                            mode='lines',
+                            line=dict(color=color, width=2.5),
+                            showlegend=False,
+                            hovertemplate='<b>%{fullData.name}</b><br>' +
+                                        'F1: %{x:.1f}<br>' +
+                                        'Density: %{y:.4f}<br>' +
+                                        '<extra></extra>'
+                        ),
+                        row=1, col=1
+                    )
+                
+                # F2 density plot
+                if len(group_data['F2'].dropna()) > 1:
+                    f2_values = group_data['F2'].dropna().values
+                    kde_f2 = gaussian_kde(f2_values)
+                    x_f2 = np.linspace(f2_values.min(), f2_values.max(), 200)
+                    y_f2 = kde_f2(x_f2)
+                    
+                    fig.add_trace(
+                        go.Scatter(
+                            x=x_f2,
+                            y=y_f2,
+                            name=str(group),
+                            mode='lines',
+                            line=dict(color=color, width=2.5),
+                            showlegend=True,
+                            legendgroup=str(group),
+                            hovertemplate='<b>%{fullData.name}</b><br>' +
+                                        'F2: %{x:.1f}<br>' +
+                                        'Density: %{y:.4f}<br>' +
+                                        '<extra></extra>'
+                        ),
+                        row=1, col=2
+                    )
+        else:
+            # Overall density plots without grouping
+            if len(df['F1'].dropna()) > 1:
+                f1_values = df['F1'].dropna().values
+                kde_f1 = gaussian_kde(f1_values)
+                x_f1 = np.linspace(f1_values.min(), f1_values.max(), 200)
+                y_f1 = kde_f1(x_f1)
+                
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_f1,
+                        y=y_f1,
+                        mode='lines',
+                        line=dict(color='steelblue', width=3),
+                        showlegend=False,
+                        hovertemplate='F1: %{x:.1f}<br>' +
+                                    'Density: %{y:.4f}<br>' +
+                                    '<extra></extra>'
+                    ),
+                    row=1, col=1
+                )
+            
+            if len(df['F2'].dropna()) > 1:
+                f2_values = df['F2'].dropna().values
+                kde_f2 = gaussian_kde(f2_values)
+                x_f2 = np.linspace(f2_values.min(), f2_values.max(), 200)
+                y_f2 = kde_f2(x_f2)
+                
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_f2,
+                        y=y_f2,
+                        mode='lines',
+                        line=dict(color='coral', width=3),
+                        showlegend=False,
+                        hovertemplate='F2: %{x:.1f}<br>' +
+                                    'Density: %{y:.4f}<br>' +
+                                    '<extra></extra>'
+                    ),
+                    row=1, col=2
+                )
+        
+        title = f'Formant Distribution (Density Plot)'
+        if group_by and group_by in df.columns:
+            title += f' by {group_by}'
+        
+        fig.update_layout(
+            title=title,
+            height=500,
+            width=1000,
+            plot_bgcolor='white',
+            font=dict(size=12),
+            showlegend=True if group_by and group_by in df.columns else False,
+            legend=dict(
+                title=group_by if group_by and group_by in df.columns else None,
+                orientation='v',
+                yanchor='top',
+                y=1,
+                xanchor='left',
+                x=1.02
+            )
+        )
+        
+        fig.update_xaxes(title_text=f"F1 ({scale})", row=1, col=1, showgrid=True, gridcolor='lightgray')
+        fig.update_xaxes(title_text=f"F2 ({scale})", row=1, col=2, showgrid=True, gridcolor='lightgray')
+        fig.update_yaxes(title_text="Density", row=1, col=1, showgrid=True, gridcolor='lightgray')
+        fig.update_yaxes(title_text="Density", row=1, col=2, showgrid=True, gridcolor='lightgray')
+        
+        return json.loads(fig.to_json())
+    
+    except Exception as e:
+        print(f"Error creating histogram: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return None
+
+
+def create_scatter_matrix(df, color_by='vowel'):
+    """
+    Create a scatter matrix showing relationships between F1, F2, and other variables
+    
+    Args:
+        df: DataFrame with F1, F2 columns
+        color_by: Column to color by (default: 'vowel')
+    
+    Returns:
+        JSON representation of the plot
+    """
+    if df is None or df.empty:
+        return None
+    
+    try:
+        # Select relevant columns
+        dimensions = ['F1', 'F2']
+        if 'F3' in df.columns:
+            dimensions.append('F3')
+        
+        color_column = color_by if color_by in df.columns else None
+        
+        if color_column:
+            fig = px.scatter_matrix(
+                df,
+                dimensions=dimensions,
+                color=color_column,
+                title=f'Scatter Matrix (colored by {color_by})',
+                height=800,
+                width=800,
+                opacity=0.7
+            )
+        else:
+            fig = px.scatter_matrix(
+                df,
+                dimensions=dimensions,
+                title='Scatter Matrix',
+                height=800,
+                width=800,
+                opacity=0.7
+            )
+        
+        fig.update_traces(diagonal_visible=True, showupperhalf=False)
+        fig.update_layout(
+            plot_bgcolor='white',
+            font=dict(size=10)
+        )
+        
+        return json.loads(fig.to_json())
+    
+    except Exception as e:
+        print(f"Error creating scatter matrix: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return None
+
+
+def create_mean_comparison_plot(df, group_by='vowel', scale='Hz'):
+    """
+    Create a plot comparing means with error bars across groups
+    
+    Args:
+        df: DataFrame with F1, F2 columns
+        group_by: Column to group by (default: 'vowel')
+        scale: Frequency scale label
+    
+    Returns:
+        JSON representation of the plot
+    """
+    if df is None or df.empty or group_by not in df.columns:
+        return None
+    
+    try:
+        from plotly.subplots import make_subplots
+        
+        # Calculate statistics by group
+        stats_data = []
+        for group in sorted(df[group_by].unique()):
+            group_data = df[df[group_by] == group]
+            stats_data.append({
+                'group': str(group),
+                'f1_mean': group_data['F1'].mean(),
+                'f1_std': group_data['F1'].std(),
+                'f1_se': group_data['F1'].sem(),
+                'f2_mean': group_data['F2'].mean(),
+                'f2_std': group_data['F2'].std(),
+                'f2_se': group_data['F2'].sem(),
+                'count': len(group_data)
+            })
+        
+        stats_df = pd.DataFrame(stats_data)
+        
+        fig = make_subplots(
+            rows=1, cols=2,
+            subplot_titles=(f'F1 Mean ± SE by {group_by}', f'F2 Mean ± SE by {group_by}'),
+            horizontal_spacing=0.15
+        )
+        
+        colors = CUSTOM_COLORS
+        
+        # F1 bar chart with error bars
+        fig.add_trace(
+            go.Bar(
+                x=stats_df['group'],
+                y=stats_df['f1_mean'],
+                error_y=dict(type='data', array=stats_df['f1_se']),
+                marker_color=colors[0],
+                showlegend=False,
+                text=[f"n={n}" for n in stats_df['count']],
+                textposition='outside'
+            ),
+            row=1, col=1
+        )
+        
+        # F2 bar chart with error bars
+        fig.add_trace(
+            go.Bar(
+                x=stats_df['group'],
+                y=stats_df['f2_mean'],
+                error_y=dict(type='data', array=stats_df['f2_se']),
+                marker_color=colors[1],
+                showlegend=False,
+                text=[f"n={n}" for n in stats_df['count']],
+                textposition='outside'
+            ),
+            row=1, col=2
+        )
+        
+        fig.update_layout(
+            title=f'Mean Formant Values with Standard Error by {group_by}',
+            height=500,
+            width=1000,
+            plot_bgcolor='white',
+            font=dict(size=12)
+        )
+        
+        fig.update_yaxes(title_text=f"F1 Mean ({scale})", row=1, col=1, showgrid=True, gridcolor='lightgray')
+        fig.update_yaxes(title_text=f"F2 Mean ({scale})", row=1, col=2, showgrid=True, gridcolor='lightgray')
+        fig.update_xaxes(title_text=group_by, row=1, col=1)
+        fig.update_xaxes(title_text=group_by, row=1, col=2)
+        
+        return json.loads(fig.to_json())
+    
+    except Exception as e:
+        print(f"Error creating mean comparison plot: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return None
+
+
+def create_pairwise_comparison_plot(pairwise_results, scale='Hz'):
+    """
+    Create bar graph for pairwise test results with significance markers
+    
+    Args:
+        pairwise_results: dict with pairwise test results from perform_pairwise_tests()
+        scale: 'Hz' or 'Bark'
+    
+    Returns:
+        JSON plot object
+    """
+    if pairwise_results is None or 'error' in pairwise_results:
+        return None
+    
+    try:
+        from plotly.subplots import make_subplots
+        
+        comparisons = pairwise_results.get('comparisons', {})
+        if not comparisons:
+            return None
+        
+        # Extract comparison data
+        comparison_labels = []
+        f1_mean_diffs = []
+        f1_p_values = []
+        f2_mean_diffs = []
+        f2_p_values = []
+        
+        for comp_key, comp_data in sorted(comparisons.items()):
+            # Format label (e.g., "a vs e")
+            label = comp_key.replace('_vs_', ' vs ')
+            comparison_labels.append(label)
+            
+            # F1 data
+            if 'F1' in comp_data:
+                f1_mean_diffs.append(abs(comp_data['F1']['mean_diff']))
+                f1_p_values.append(comp_data['F1']['p_value'])
+            else:
+                f1_mean_diffs.append(0)
+                f1_p_values.append(1)
+            
+            # F2 data
+            if 'F2' in comp_data:
+                f2_mean_diffs.append(abs(comp_data['F2']['mean_diff']))
+                f2_p_values.append(comp_data['F2']['p_value'])
+            else:
+                f2_mean_diffs.append(0)
+                f2_p_values.append(1)
+        
+        # Create significance markers
+        def get_significance_marker(p_value):
+            if p_value < 0.001:
+                return '***'
+            elif p_value < 0.01:
+                return '**'
+            elif p_value < 0.05:
+                return '*'
+            else:
+                return 'ns'
+        
+        f1_sig = [get_significance_marker(p) for p in f1_p_values]
+        f2_sig = [get_significance_marker(p) for p in f2_p_values]
+        
+        # Create subplots
+        fig = make_subplots(
+            rows=1, cols=2,
+            subplot_titles=(f'F1 Mean Difference ({scale})', f'F2 Mean Difference ({scale})'),
+            horizontal_spacing=0.15
+        )
+        
+        # F1 bar chart
+        bar_colors_f1 = [CUSTOM_COLORS[0] if sig != 'ns' else '#cccccc' for sig in f1_sig]
+        fig.add_trace(
+            go.Bar(
+                x=comparison_labels,
+                y=f1_mean_diffs,
+                name='F1',
+                marker_color=bar_colors_f1,
+                text=f1_sig,
+                textposition='outside',
+                textfont=dict(size=14, color='black'),
+                hovertemplate='%{x}<br>Mean Diff: %{y:.1f} Hz<br>Significance: %{text}<extra></extra>'
+            ),
+            row=1, col=1
+        )
+        
+        # F2 bar chart
+        bar_colors_f2 = [CUSTOM_COLORS[1] if sig != 'ns' else '#cccccc' for sig in f2_sig]
+        fig.add_trace(
+            go.Bar(
+                x=comparison_labels,
+                y=f2_mean_diffs,
+                name='F2',
+                marker_color=bar_colors_f2,
+                text=f2_sig,
+                textposition='outside',
+                textfont=dict(size=14, color='black'),
+                hovertemplate='%{x}<br>Mean Diff: %{y:.1f} Hz<br>Significance: %{text}<extra></extra>'
+            ),
+            row=1, col=2
+        )
+        
+        # Update layout
+        fig.update_layout(
+            title=f"Pairwise Comparisons: Mean Differences (by {pairwise_results.get('group_by', 'group')})",
+            height=500,
+            width=900,
+            showlegend=False,
+            plot_bgcolor='white',
+            font=dict(size=12)
+        )
+        
+        fig.update_yaxes(title_text=f"Absolute Mean Difference ({scale})", row=1, col=1, showgrid=True, gridcolor='lightgray')
+        fig.update_yaxes(title_text=f"Absolute Mean Difference ({scale})", row=1, col=2, showgrid=True, gridcolor='lightgray')
+        fig.update_xaxes(row=1, col=1, tickangle=-45)
+        fig.update_xaxes(row=1, col=2, tickangle=-45)
+        
+        return json.loads(fig.to_json())
+    
+    except Exception as e:
+        print(f"Error creating pairwise comparison plot: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return None
+
