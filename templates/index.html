@@ -154,6 +154,49 @@
                                     <p class="method-refs"><strong>References:</strong> Escudero, Boersma, Rauber &amp; Bion (2009), <em>JASA</em> 126(3), 1379–1393 · Feinberg (2019), <em>Automated Formant Ceiling Settings</em>, OSF Registries, doi:10.17605/OSF.IO/PDWCB · Barreda (2021), Fast Track, <em>Linguistics Vanguard</em> 7(1) · Boersma &amp; Weenink, Praat manual, “Sound: To Formant (burg)…”.</p>
                                 </div>
                             </details>
+
+                            <details class="extraction-method">
+                                <summary><strong>📈 Formant Trajectory over Normalized Time</strong></summary>
+                                <div class="method-details">
+                                    <p>Use this plot to compare <em>how formants move inside a vowel</em> (diphthongization, transitions) across productions and speakers. Because productions differ in length, the time of each one is rescaled to 0 (onset) – 1 (offset) so trajectories can be overlaid.</p>
+
+                                    <h4>1 · Prepare the data (CSV/TXT/XLSX)</h4>
+                                    <ul>
+                                        <li><strong>At least two time points per production</strong>, e.g. values at 20·35·50·65·80% of the vowel, or every 10 ms.</li>
+                                        <li><strong>Required columns:</strong> <code>vowel, F1, F2, time</code>. An <code>F3</code> column adds a dotted F3 line.</li>
+                                        <li><strong>How productions are separated:</strong> by <code>native_language</code>, <code>speaker</code> and <code>vowel</code>, plus one of <code>token, token_id, item, word, rep, repetition, file, id</code> when present. If one speaker produced the same vowel several times, include one of those columns or all repetitions merge into a single line.</li>
+                                        <li><code>time</code> may be absolute seconds or already normalized (0–1 or 0–100); only the order and spacing within a production matter.</li>
+                                        <li>Productions with a single point are skipped. WAV + TextGrid extraction gives one point per vowel interval, so it is not suitable here; measure several points per interval instead.</li>
+                                    </ul>
+                                    <p><strong>Example</strong> (two speakers, /ai/, repeated tokens, with F3):</p>
+<pre class="method-example">speaker,vowel,token,time,F1,F2,F3
+SP01,ai,1,0.00,720,1250,2600
+SP01,ai,1,0.50,520,1850,2700
+SP01,ai,1,1.00,330,2300,2800
+SP01,ai,2,0.00,700,1300,2580
+SP01,ai,2,1.00,340,2280,2790
+SP02,ai,1,0.00,760,1200,2550
+SP02,ai,1,1.00,350,2250,2760</pre>
+
+                                    <h4>2 · Run</h4>
+                                    <ol>
+                                        <li>Upload the file and choose <strong>Visualization Type → Formant Trajectory over Normalized Time</strong>.</li>
+                                        <li>Optionally pick a <strong>Formant Scale</strong> (Bark/ERB/Mel); values and axis are converted together.</li>
+                                        <li>Click <strong>Visualize</strong>.</li>
+                                    </ol>
+
+                                    <h4>3 · Read the plot</h4>
+                                    <ul>
+                                        <li><strong>One shared frequency axis:</strong> F1, F2 and F3 are drawn in the same panel. <strong>Colour = vowel, line style = formant</strong> (F1 solid, F2 dashed, F3 dotted); the legend’s “Line style” group shows grey samples.</li>
+                                        <li><strong>Fixed y axis:</strong> 0–3000 Hz regardless of which vowels are present, so plots are directly comparable. If an <code>F3</code> column exists the top is raised to <strong>max(F3) × 1.2</strong> (never below 3000 Hz). With Bark/ERB/Mel the same range is converted (3000 Hz ≈ 15.7 Bark).</li>
+                                        <li><strong>End labels:</strong> each line ends with its formant name (F1/F2/F3) in the vowel colour. For vowels with several productions the label sits on the mean line only.</li>
+                                        <li><strong>Individual vs. mean:</strong> a vowel with one production is a single bold line; with two or more, each production is a thin translucent line and the <strong>mean trajectory</strong> (interpolated on a 21-point grid) is bold. The legend shows the count, e.g. “a (mean of 6)”.</li>
+                                        <li><strong>Interaction:</strong> click a legend item to hide/show a vowel (all its formants together), double-click to isolate it; hover for vowel, speaker/token, value, normalized time and original time.</li>
+                                        <li><strong>Interpretation example:</strong> mean F1 falling while F2 rises means the tongue moves higher and more front during the vowel, as in /ai/. Thin lines spread widely around the mean indicate large between-production variability.</li>
+                                    </ul>
+                                    <p class="note-box">📊 <strong>API:</strong> <code>POST /upload</code> with <code>viz_type=trajectory_time</code>.</p>
+                                </div>
+                            </details>
                         </div>
                     </div>
 

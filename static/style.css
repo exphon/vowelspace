@@ -615,6 +615,17 @@ footer {
     font-size: 0.9em;
 }
 
+.method-details .method-example {
+    margin: 6px 0 12px;
+    padding: 10px;
+    background: #f7f8fb;
+    border: 1px solid #e3e6ee;
+    border-radius: 4px;
+    font-size: 0.85em;
+    line-height: 1.4;
+    overflow-x: auto;
+}
+
 .method-details .method-refs {
     margin-top: 12px;
     font-size: 0.85em;
