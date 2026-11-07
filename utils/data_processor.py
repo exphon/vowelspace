@@ -233,129 +233,180 @@ def process_csv_xlsx(filepath, auto_detect=True):
         return pd.DataFrame()
 
 
-def process_wav_textgrid(wav_files, textgrid_files=None):
+TARGET_SAMPLING_RATE = 16000
+
+
+def process_wav_textgrid(wav_files, textgrid_files=None, ceiling_mode='auto',
+                         fixed_ceiling=5500.0, ceiling_criterion='f3f4'):
     """
-    Process WAV files and optional TextGrid files to extract formant data
-    Returns a tuple: (DataFrame with F1, F2, vowel labels, and time information, metadata dict)
+    Process WAV files and optional TextGrid files to extract formant data.
+
+    Args:
+        wav_files: list of WAV paths
+        textgrid_files: list of TextGrid paths (matched to WAVs by basename)
+        ceiling_mode: 'auto' optimises the formant ceiling per speaker
+                      (see utils.formant_ceiling); 'fixed' uses ``fixed_ceiling``.
+        fixed_ceiling: ceiling in Hz used when ``ceiling_mode == 'fixed'`` and
+                       as the fallback when optimisation is impossible.
+        ceiling_criterion: 'f3f4' (default), 'f1f2' (Escudero et al. 2009) or
+                           'combined'.
+
+    Returns a tuple: (DataFrame with F1-F4, vowel labels, time information and
+    the ceiling used, metadata dict)
     """
     if parselmouth is None:
         print("Parselmouth not installed. Cannot process audio files.")
         return pd.DataFrame(), None
-    
-    all_data = []
+
+    from .formant_ceiling import compute_formant, measure_token, optimize_ceiling, CRITERIA
+
+    if ceiling_criterion not in CRITERIA:
+        ceiling_criterion = 'f3f4'
+    try:
+        fixed_ceiling = float(fixed_ceiling)
+    except (TypeError, ValueError):
+        fixed_ceiling = 5500.0
+    if ceiling_mode != 'auto':
+        ceiling_mode = 'fixed'
+
     metadata = {
         'files': [],
         'total_vowels_extracted': 0,
         'vowel_counts': {},
-        'processing_info': []
+        'processing_info': [],
+        'formant_ceiling': {
+            'mode': ceiling_mode,
+            'criterion': ceiling_criterion if ceiling_mode == 'auto' else None,
+            'fixed_ceiling': fixed_ceiling if ceiling_mode == 'fixed' else None,
+            'speakers': {},
+        },
     }
-    
+
+    # ---- Pass 1: load audio, find TextGrids, collect vowel tokens ----
+    entries = []
     for wav_file in wav_files:
+        basename = os.path.splitext(os.path.basename(wav_file))[0]
         try:
-            # Extract metadata from filename
-            basename = os.path.splitext(os.path.basename(wav_file))[0]
-            
-            # Try to extract speaker and language from filename patterns
-            # Common patterns: speaker_language_*, language_speaker_*, etc.
             file_metadata = extract_metadata_from_filename(basename)
-            
-            # Load sound file
             sound = parselmouth.Sound(wav_file)
-            
-            # Check and resample to 16000 Hz if needed
+
             original_sampling_rate = sound.sampling_frequency
-            target_sampling_rate = 16000
-            
-            if original_sampling_rate != target_sampling_rate:
-                print(f"Resampling {basename} from {original_sampling_rate} Hz to {target_sampling_rate} Hz")
-                sound = sound.resample(target_sampling_rate, precision=50)
+            if original_sampling_rate != TARGET_SAMPLING_RATE:
+                print(f"Resampling {basename} from {original_sampling_rate} Hz to {TARGET_SAMPLING_RATE} Hz")
+                sound = sound.resample(TARGET_SAMPLING_RATE, precision=50)
                 metadata['processing_info'].append(
-                    f"  ↻ Resampled from {original_sampling_rate} Hz to {target_sampling_rate} Hz"
+                    f"  ↻ Resampled from {original_sampling_rate} Hz to {TARGET_SAMPLING_RATE} Hz"
                 )
-            else:
-                print(f"{basename}: Already at {target_sampling_rate} Hz")
-            
-            # Find corresponding TextGrid if available
+
+            textgrid_file = _find_textgrid(wav_file, textgrid_files)
             textgrid = None
-            textgrid_file = None
-            if textgrid_files:
-                base_name = os.path.splitext(wav_file)[0]
-                basename_only = os.path.basename(base_name)
-                for tg_file in textgrid_files:
-                    tg_base = os.path.splitext(os.path.basename(tg_file))[0]
-                    if basename_only == tg_base:
-                        textgrid_file = tg_file
-                        break
-                
-                if textgrid_file:
-                    try:
-                        textgrid = parselmouth.read(textgrid_file)
-                    except Exception as e:
-                        print(f"Error reading TextGrid {textgrid_file}: {e}")
-            
-            # Extract formants
-            formant = sound.to_formant_burg(
-                time_step=0.01,
-                max_number_of_formants=5,
-                maximum_formant=5500.0,
-                window_length=0.025,
-                pre_emphasis_from=50.0
-            )
-            
-            # If TextGrid is available, extract formants at labeled intervals
-            file_data = []
-            if textgrid:
-                file_data = extract_formants_from_textgrid(sound, formant, textgrid, file_metadata, basename)
+            if textgrid_file:
+                try:
+                    textgrid = parselmouth.read(textgrid_file)
+                except Exception as e:
+                    print(f"Error reading TextGrid {textgrid_file}: {e}")
+
+            if textgrid is not None:
+                tokens = collect_vowel_tokens(textgrid)
             else:
-                file_data = extract_formants_regular(formant, sound.duration, file_metadata, basename)
-            
-            # Track statistics
+                tokens = collect_voiced_frames(sound)
+
+            entries.append({
+                'basename': basename,
+                'wav_file': wav_file,
+                'textgrid_file': textgrid_file,
+                'sound': sound,
+                'tokens': tokens,
+                'file_metadata': file_metadata,
+                'original_sampling_rate': original_sampling_rate,
+                'speaker_key': file_metadata.get('speaker') or basename,
+            })
+        except Exception as e:
+            print(f"Error loading {wav_file}: {e}")
+            metadata['processing_info'].append(f"✗ {os.path.basename(wav_file)}: {e}")
+
+    # ---- Pass 2: choose a ceiling per speaker ----
+    speaker_ceiling = {}
+    if ceiling_mode == 'auto':
+        groups = {}
+        for entry in entries:
+            groups.setdefault(entry['speaker_key'], []).append(entry)
+        for speaker, group in groups.items():
+            items = [(e['sound'], e['tokens']) for e in group]
+            try:
+                result = optimize_ceiling(items, criterion=ceiling_criterion, fallback=fixed_ceiling)
+            except Exception as e:
+                print(f"Ceiling optimisation failed for {speaker}: {e}")
+                result = {'ceiling': fixed_ceiling, 'criterion': None, 'score': None,
+                          'n_tokens': sum(len(e['tokens']) for e in group), 'sweep': [],
+                          'note': f'optimisation failed ({e}); fixed ceiling used'}
+            speaker_ceiling[speaker] = result['ceiling']
+            metadata['formant_ceiling']['speakers'][speaker] = {
+                **result,
+                'files': [e['basename'] for e in group],
+            }
+            crit = result.get('criterion') or 'fixed'
+            metadata['processing_info'].append(
+                f"⚙ {speaker}: formant ceiling {result['ceiling']:.0f} Hz "
+                f"({crit}, {result['n_tokens']} tokens)"
+            )
+    else:
+        for entry in entries:
+            speaker_ceiling[entry['speaker_key']] = fixed_ceiling
+
+    # ---- Pass 3: extract formants with the chosen ceiling ----
+    all_data = []
+    for entry in entries:
+        basename = entry['basename']
+        ceiling = speaker_ceiling.get(entry['speaker_key'], fixed_ceiling)
+        try:
+            formant = compute_formant(entry['sound'], ceiling)
+            file_data = extract_token_formants(formant, entry['tokens'], entry['file_metadata'],
+                                               basename, ceiling, measure_token)
             vowel_count = len(file_data)
             metadata['files'].append({
-                'wav_file': os.path.basename(wav_file),
-                'textgrid_file': os.path.basename(textgrid_file) if textgrid_file else None,
+                'wav_file': os.path.basename(entry['wav_file']),
+                'textgrid_file': os.path.basename(entry['textgrid_file']) if entry['textgrid_file'] else None,
                 'basename': basename,
-                'duration': sound.duration,
-                'original_sampling_rate': original_sampling_rate,
-                'final_sampling_rate': sound.sampling_frequency,
-                'was_resampled': original_sampling_rate != target_sampling_rate,
+                'duration': entry['sound'].duration,
+                'original_sampling_rate': entry['original_sampling_rate'],
+                'final_sampling_rate': entry['sound'].sampling_frequency,
+                'was_resampled': entry['original_sampling_rate'] != TARGET_SAMPLING_RATE,
+                'formant_ceiling': ceiling,
                 'vowels_extracted': vowel_count,
-                **file_metadata
+                **entry['file_metadata'],
             })
-            
             metadata['total_vowels_extracted'] += vowel_count
-            
-            # Count vowels
             for item in file_data:
-                vowel = item.get('vowel')
-                if not vowel:
-                    vowel = convert_to_ipa_label(item.get('vowel_raw', 'unknown'))
+                vowel = item.get('vowel') or convert_to_ipa_label(item.get('vowel_raw', 'unknown'))
                 metadata['vowel_counts'][vowel] = metadata['vowel_counts'].get(vowel, 0) + 1
-            
             all_data.extend(file_data)
-            metadata['processing_info'].append(f"✓ {basename}: {vowel_count} vowels")
-        
+            metadata['processing_info'].append(f"✓ {basename}: {vowel_count} vowels (ceiling {ceiling:.0f} Hz)")
         except Exception as e:
-            error_msg = f"✗ {os.path.basename(wav_file)}: {str(e)}"
-            print(f"Error processing {wav_file}: {e}")
-            metadata['processing_info'].append(error_msg)
-            continue
-    
+            print(f"Error processing {entry['wav_file']}: {e}")
+            metadata['processing_info'].append(f"✗ {os.path.basename(entry['wav_file'])}: {e}")
+
     if not all_data:
         return pd.DataFrame(), metadata
-    
+
     df = pd.DataFrame(all_data)
-    
-    # Keep only vowel-labeled rows
+
+    # Keep only vowel-labeled rows ('unlabeled' = voiced frames of a WAV without TextGrid)
+    def _keep(label):
+        return label == 'unlabeled' or is_vowel_label(label)
+
+    def _ipa(label):
+        return label if label == 'unlabeled' else convert_to_ipa_label(label)
+
     if 'vowel_raw' in df.columns:
         df['vowel_raw'] = df['vowel_raw'].apply(normalize_vowel_label)
-        df = df[df['vowel_raw'].apply(is_vowel_label)]
-        df['vowel'] = df['vowel_raw'].apply(convert_to_ipa_label)
+        df = df[df['vowel_raw'].apply(_keep)].copy()
+        df['vowel'] = df['vowel_raw'].apply(_ipa)
     elif 'vowel' in df.columns:
         df['vowel'] = df['vowel'].apply(normalize_vowel_label)
-        df = df[df['vowel'].apply(is_vowel_label)]
-        df['vowel'] = df['vowel'].apply(convert_to_ipa_label)
-    
+        df = df[df['vowel'].apply(_keep)].copy()
+        df['vowel'] = df['vowel'].apply(_ipa)
+
     # Ensure required columns exist
     if 'speaker' not in df.columns:
         df['speaker'] = 'unknown'
@@ -363,20 +414,21 @@ def process_wav_textgrid(wav_files, textgrid_files=None):
         df['native_language'] = 'unknown'
 
     # Normalize speaker and language fields so grouping logic never sees NaN/None
-    df['speaker'] = (
-        df['speaker']
-        .fillna('unknown')
-        .replace('', 'unknown')
-        .astype(str)
-    )
-    df['native_language'] = (
-        df['native_language']
-        .fillna('unknown')
-        .replace('', 'unknown')
-        .astype(str)
-    )
-    
+    df['speaker'] = df['speaker'].fillna('unknown').replace('', 'unknown').astype(str)
+    df['native_language'] = df['native_language'].fillna('unknown').replace('', 'unknown').astype(str)
+
     return df, metadata
+
+
+def _find_textgrid(wav_file, textgrid_files):
+    """Return the TextGrid path whose basename matches the WAV, if any."""
+    if not textgrid_files:
+        return None
+    basename_only = os.path.splitext(os.path.basename(wav_file))[0]
+    for tg_file in textgrid_files:
+        if os.path.splitext(os.path.basename(tg_file))[0] == basename_only:
+            return tg_file
+    return None
 
 
 def extract_metadata_from_filename(basename):
@@ -411,139 +463,101 @@ def extract_metadata_from_filename(basename):
     return metadata
 
 
-def extract_formants_from_textgrid(sound, formant, textgrid, file_metadata, basename):
-    """Extract formants at labeled vowel intervals from TextGrid"""
-    data = []
-    
+def find_vowel_tier(textgrid):
+    """Index (1-based) of the tier most likely to hold vowel/phone labels."""
+    n_tiers = int(call(textgrid, "Get number of tiers"))
+    tier_names = [call(textgrid, "Get tier name", i) for i in range(1, n_tiers + 1)]
+    for idx, name in enumerate(tier_names, 1):
+        if name and any(keyword in str(name).lower() for keyword in ['vowel', 'phone', 'segment']):
+            return idx
+    return 1
+
+
+def collect_vowel_tokens(textgrid):
+    """
+    Vowel intervals of a TextGrid as a list of dicts:
+    ``{'vowel': ipa, 'vowel_raw': clean_label, 'start': s, 'end': e}``.
+    """
+    tokens = []
     try:
-        # Get the number of tiers and their names using Praat calls
-        n_tiers = int(call(textgrid, "Get number of tiers"))
-        tier_names = [call(textgrid, "Get tier name", i) for i in range(1, n_tiers + 1)]
-        vowel_tier_idx = 1  # Default to first tier
-        
-        # Try to find a tier with vowel-related names
-        for idx, name in enumerate(tier_names, 1):
-            if name and any(keyword in str(name).lower() for keyword in ['vowel', 'phone', 'segment']):
-                vowel_tier_idx = idx
-                break
-        
-        # Get number of intervals in the selected tier
-        n_intervals = int(call(textgrid, "Get number of intervals", vowel_tier_idx))
-        
+        tier = find_vowel_tier(textgrid)
+        n_intervals = int(call(textgrid, "Get number of intervals", tier))
         for i in range(1, n_intervals + 1):
-            label = call(textgrid, "Get label of interval", vowel_tier_idx, i)
-            
-            if label and label.strip():  # Non-empty label
-                start = call(textgrid, "Get start time of interval", vowel_tier_idx, i)
-                end = call(textgrid, "Get end time of interval", vowel_tier_idx, i)
-                
-                # Sample formants from the middle 25% of the duration
-                duration = end - start
-                if duration > 0.02:  # At least 20ms
-                    # Calculate middle 25% range: from 37.5% to 62.5% of duration
-                    mid_start = start + duration * 0.375
-                    mid_end = start + duration * 0.625
-                    
-                    # Sample at 5 points within the middle 25% and average them
-                    time_points = np.linspace(mid_start, mid_end, 5)
-                    
-                    f1_values = []
-                    f2_values = []
-                    
-                    for time_point in time_points:
-                        f1 = call(formant, "Get value at time", 1, time_point, "hertz", "linear")
-                        f2 = call(formant, "Get value at time", 2, time_point, "hertz", "linear")
-                        
-                        if f1 and f2 and not (np.isnan(f1) or np.isnan(f2)):
-                            if 100 <= f1 <= 4000 and 100 <= f2 <= 4000:
-                                f1_values.append(f1)
-                                f2_values.append(f2)
-                    
-                    # Use average values if we have valid measurements
-                    clean_label = normalize_vowel_label(label)
-                    if f1_values and f2_values and is_vowel_label(clean_label):
-                        f1_avg = np.mean(f1_values)
-                        f2_avg = np.mean(f2_values)
-                        mid_time = (mid_start + mid_end) / 2
-                        ipa_label = convert_to_ipa_label(clean_label)
-                        
-                        data_point = {
-                            'vowel': ipa_label,
-                            'vowel_raw': clean_label,
-                            'F1': round(f1_avg, 1),
-                            'F2': round(f2_avg, 1),
-                            'time': mid_time,
-                            'duration': duration * 1000,  # Convert to ms
-                            'file': basename
-                        }
-                        # Add metadata
-                        if file_metadata.get('speaker'):
-                            data_point['speaker'] = file_metadata['speaker']
-                        if file_metadata.get('native_language'):
-                            data_point['native_language'] = file_metadata['native_language']
-                        
-                        data.append(data_point)
-                else:
-                    # For very short segments, use midpoint
-                    time_point = (start + end) / 2
-                    f1 = call(formant, "Get value at time", 1, time_point, "hertz", "linear")
-                    f2 = call(formant, "Get value at time", 2, time_point, "hertz", "linear")
-                    
-                    if f1 and f2 and not (np.isnan(f1) or np.isnan(f2)):
-                        clean_label = normalize_vowel_label(label)
-                        if 100 <= f1 <= 4000 and 100 <= f2 <= 4000 and is_vowel_label(clean_label):
-                            ipa_label = convert_to_ipa_label(clean_label)
-                            data_point = {
-                                'vowel': ipa_label,
-                                'vowel_raw': clean_label,
-                                'F1': round(f1, 1),
-                                'F2': round(f2, 1),
-                                'time': time_point,
-                                'duration': duration * 1000,  # Convert to ms
-                                'file': basename
-                            }
-                            # Add metadata
-                            if file_metadata.get('speaker'):
-                                data_point['speaker'] = file_metadata['speaker']
-                            if file_metadata.get('native_language'):
-                                data_point['native_language'] = file_metadata['native_language']
-                            
-                            data.append(data_point)
-    
+            label = call(textgrid, "Get label of interval", tier, i)
+            if not label or not label.strip():
+                continue
+            clean_label = normalize_vowel_label(label)
+            if not is_vowel_label(clean_label):
+                continue
+            start = call(textgrid, "Get start time of interval", tier, i)
+            end = call(textgrid, "Get end time of interval", tier, i)
+            if end - start <= 0:
+                continue
+            tokens.append({
+                'vowel': convert_to_ipa_label(clean_label),
+                'vowel_raw': clean_label,
+                'start': start,
+                'end': end,
+            })
     except Exception as e:
-        print(f"Error extracting from TextGrid: {e}")
-    
-    return data
+        print(f"Error reading TextGrid intervals: {e}")
+    return tokens
 
 
-def extract_formants_regular(formant, duration, file_metadata, basename):
-    """Extract formants at regular intervals when no TextGrid is available"""
+def collect_voiced_frames(sound, time_step=0.05, margin=0.1):
+    """
+    Regularly spaced voiced frames for a sound without a TextGrid.
+
+    Frames every ``time_step`` seconds whose pitch is defined are returned as
+    zero-length tokens labelled 'unlabeled' (measured at the frame time only).
+    """
+    tokens = []
+    try:
+        pitch = sound.to_pitch()
+    except Exception:
+        pitch = None
+    for t in np.arange(margin, sound.duration - margin, time_step):
+        if pitch is not None:
+            f0 = call(pitch, "Get value at time", float(t), "Hertz", "linear")
+            if f0 is None or np.isnan(f0):
+                continue
+        tokens.append({'vowel': 'unlabeled', 'vowel_raw': 'unlabeled', 'start': float(t), 'end': float(t)})
+    return tokens
+
+
+def extract_token_formants(formant, tokens, file_metadata, basename, ceiling, measure_token):
+    """
+    Measure F1-F4 for each token with an already computed Formant object.
+
+    Tokens are measured over the middle 25% of their duration (5 points,
+    averaged); zero-length or very short tokens at their midpoint. Tokens whose
+    F1 or F2 fall outside 100-4000 Hz are dropped.
+    """
     data = []
-    
-    # Sample every 50ms
-    time_step = 0.05
-    time_points = np.arange(0.1, duration - 0.1, time_step)
-    
-    for time_point in time_points:
-        f1 = call(formant, "Get value at time", 1, time_point, "hertz", "linear")
-        f2 = call(formant, "Get value at time", 2, time_point, "hertz", "linear")
-        
-        if f1 and f2 and not (np.isnan(f1) or np.isnan(f2)):
-            if 100 <= f1 <= 4000 and 100 <= f2 <= 4000:
-                data_point = {
-                    'vowel': 'unlabeled',
-                    'vowel_raw': 'unlabeled',
-                    'F1': round(f1, 1),
-                    'F2': round(f2, 1),
-                    'time': time_point,
-                    'file': basename
-                }
-                # Add metadata
-                if file_metadata.get('speaker'):
-                    data_point['speaker'] = file_metadata['speaker']
-                if file_metadata.get('native_language'):
-                    data_point['native_language'] = file_metadata['native_language']
-                
-                data.append(data_point)
-    
+    for tok in tokens:
+        values = measure_token(formant, tok['start'], tok['end'])
+        f1, f2, f3, f4 = values
+        if np.isnan(f1) or np.isnan(f2):
+            continue
+        if not (100 <= f1 <= 4000 and 100 <= f2 <= 4000):
+            continue
+        duration = tok['end'] - tok['start']
+        data_point = {
+            'vowel': tok.get('vowel') or 'unlabeled',
+            'vowel_raw': tok.get('vowel_raw') or 'unlabeled',
+            'F1': round(float(f1), 1),
+            'F2': round(float(f2), 1),
+            'F3': None if np.isnan(f3) else round(float(f3), 1),
+            'F4': None if np.isnan(f4) else round(float(f4), 1),
+            'time': (tok['start'] + tok['end']) / 2.0,
+            'file': basename,
+            'formant_ceiling': float(ceiling),
+        }
+        if duration > 0:
+            data_point['duration'] = duration * 1000  # ms
+        if file_metadata.get('speaker'):
+            data_point['speaker'] = file_metadata['speaker']
+        if file_metadata.get('native_language'):
+            data_point['native_language'] = file_metadata['native_language']
+        data.append(data_point)
     return data

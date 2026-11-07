@@ -154,6 +154,54 @@ def allowed_file(filename):
            filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
 
+def parse_ceiling_options(form):
+    """
+    Read the formant-ceiling options from the upload form.
+
+    ``formant_ceiling`` is 'auto' (per-speaker optimisation), a number in Hz,
+    or 'custom' with the value in ``custom_ceiling``. ``ceiling_criterion`` is
+    'f3f4' (default), 'f1f2' or 'combined'.
+    Returns (mode, fixed_ceiling_hz, criterion).
+    """
+    raw = (form.get('formant_ceiling') or 'auto').strip().lower()
+    criterion = (form.get('ceiling_criterion') or 'f3f4').strip().lower()
+    if criterion not in ('f3f4', 'f1f2', 'combined'):
+        criterion = 'f3f4'
+    if raw == 'auto':
+        return 'auto', 5500.0, criterion
+    if raw == 'custom':
+        raw = (form.get('custom_ceiling') or '').strip()
+    try:
+        ceiling = float(raw)
+    except ValueError:
+        return 'auto', 5500.0, criterion
+    ceiling = min(max(ceiling, 3000.0), 8000.0)
+    return 'fixed', ceiling, criterion
+
+
+def summarize_ceiling_info(metadata):
+    """Compact per-speaker ceiling summary for the JSON response (no sweep curves)."""
+    if not metadata or 'formant_ceiling' not in metadata:
+        return None
+    info = metadata['formant_ceiling']
+    speakers = {}
+    for speaker, r in (info.get('speakers') or {}).items():
+        speakers[speaker] = {
+            'ceiling': r.get('ceiling'),
+            'criterion': r.get('criterion'),
+            'score': r.get('score'),
+            'n_tokens': r.get('n_tokens'),
+            'files': r.get('files'),
+            'note': r.get('note'),
+        }
+    return {
+        'mode': info.get('mode'),
+        'criterion': info.get('criterion'),
+        'fixed_ceiling': info.get('fixed_ceiling'),
+        'speakers': speakers,
+    }
+
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -171,6 +219,7 @@ def upload_file():
         show_points = request.form.get('show_points', 'true') == 'true'
         formant_scale = request.form.get('formant_scale', 'Hz')  # Get scale option
         limit_basic_vowels = request.form.get('limit_basic_vowels', 'false') == 'true'
+        ceiling_mode, fixed_ceiling, ceiling_criterion = parse_ceiling_options(request.form)
         
         if not files or files[0].filename == '':
             return jsonify({'error': 'Please select a file.'}), 400
@@ -194,6 +243,7 @@ def upload_file():
         data = None
         detection_info = None
         file_types = [f['ext'] for f in uploaded_files]
+        metadata = None
         
         if 'csv' in file_types or 'xlsx' in file_types or 'xls' in file_types or 'txt' in file_types:
             # Process spreadsheet data with auto-detection
@@ -252,7 +302,12 @@ def upload_file():
             textgrid_paths = [f['path'] for f in textgrid_files]
             
             # Process with metadata extraction
-            result = process_wav_textgrid(wav_paths, textgrid_paths)
+            result = process_wav_textgrid(
+                wav_paths, textgrid_paths,
+                ceiling_mode=ceiling_mode,
+                fixed_ceiling=fixed_ceiling,
+                ceiling_criterion=ceiling_criterion,
+            )
             if isinstance(result, tuple):
                 data, metadata = result
             else:
@@ -358,6 +413,7 @@ def upload_file():
                 'vowels': data['vowel'].unique().tolist() if 'vowel' in data.columns else [],
                 'columns': data.columns.tolist(),
                 'column_detection': detection_info if detection_info else None,
+                'formant_ceiling': summarize_ceiling_info(metadata),
                 'filters': {
                     'basic_vowels_only': basic_filter_applied,
                     'removed_rows': basic_filter_removed,

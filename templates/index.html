@@ -39,6 +39,26 @@
                         <p class="help-text">Select the frequency scale for formant display. Uploaded data is assumed to be in Hz and will be automatically converted.</p>
                     </div>
 
+                    <div class="form-group">
+                        <label for="formantCeiling">Formant Ceiling (WAV only):</label>
+                        <select id="formantCeiling" name="formant_ceiling">
+                            <option value="auto" selected>Auto per speaker (recommended)</option>
+                            <option value="5500">Fixed 5500 Hz (Praat default, women)</option>
+                            <option value="5000">Fixed 5000 Hz (Praat default, men)</option>
+                            <option value="custom">Custom (Hz)</option>
+                        </select>
+                        <input type="number" id="customCeiling" name="custom_ceiling" min="3000" max="8000" step="10" value="5500" style="display: none; margin-top: 0.4rem; width: 8rem;">
+                        <div id="ceilingCriterionGroup" style="margin-top: 0.4rem;">
+                            <label for="ceilingCriterion" style="font-weight: normal;">Optimization criterion:</label>
+                            <select id="ceilingCriterion" name="ceiling_criterion">
+                                <option value="f3f4" selected>F3–F4 stability across tokens (Feinberg 2019)</option>
+                                <option value="f1f2">Within-vowel F1–F2 stability (Escudero et al. 2009; needs repeated vowels)</option>
+                                <option value="combined">Both combined</option>
+                            </select>
+                        </div>
+                        <p class="help-text">Auto sweeps 4000–8000 Hz per speaker (speaker = first part of the file name) and picks the ceiling with the most stable formants instead of a fixed sex-based value. Takes a few seconds per speaker.</p>
+                    </div>
+
                     <div class="form-group" id="ellipseOptions" style="display: none;">
                         <label>
                             <input type="checkbox" id="showPoints" name="show_points" checked>
@@ -84,7 +104,9 @@
                                         <li><strong>Sampling Region:</strong> Formants are measured from the <strong>middle 25% of each vowel's duration</strong> (37.5% ~ 62.5% timepoints) to avoid coarticulation effects</li>
                                         <li><strong>Averaging:</strong> 5 measurement points within the middle region are sampled and averaged for stability</li>
                                         <li><strong>Quality Control:</strong> Outliers beyond ±3 standard deviations (per vowel type) are automatically removed</li>
-                                        <li><strong>Praat Settings:</strong> Formant extraction uses Burg's method with 5 formants, 5500Hz ceiling, 25ms window, 10ms time step</li>
+                                        <li><strong>Praat Settings:</strong> Formant extraction uses Burg's method with 5 formants, 25ms window, 10ms time step, 50 Hz pre-emphasis</li>
+                                        <li><strong>Formant Ceiling:</strong> By default the ceiling is optimized <strong>per speaker</strong>: ceilings from 4000 to 8000 Hz are swept (100 Hz steps, then 20 Hz refinement) and the one that minimizes the variance of 20·log₁₀F3 + 20·log₁₀F4 across all vowel tokens is used (Feinberg, 2019, OSF preregistration PDWCB). Alternatively the within-vowel variance of 20·log₁₀F1 + 20·log₁₀F2 can be minimized (Escudero, Boersma, Rauber &amp; Bion, 2009, JASA). Fixed ceilings (5000/5500 Hz or custom) remain available.</li>
+                                        <li><strong>Output:</strong> F1–F4 and the ceiling used are included in the downloadable CSV</li>
                                     </ol>
                                     <p class="note-box">📊 <strong>Result:</strong> Each vowel segment yields one F1/F2 measurement pair (averaged and rounded to 1 decimal place)</p>
                                 </div>
@@ -254,6 +276,15 @@ a,700,1200,1.5</pre>
             }
         });
 
+        // Show the custom ceiling box / hide the criterion selector depending on ceiling mode
+        const formantCeilingSelect = document.getElementById('formantCeiling');
+        const customCeilingInput = document.getElementById('customCeiling');
+        const ceilingCriterionGroup = document.getElementById('ceilingCriterionGroup');
+        formantCeilingSelect.addEventListener('change', function() {
+            customCeilingInput.style.display = this.value === 'custom' ? 'block' : 'none';
+            ceilingCriterionGroup.style.display = this.value === 'auto' ? 'block' : 'none';
+        });
+
         uploadForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -270,6 +301,9 @@ a,700,1200,1.5</pre>
             formData.append('viz_type', document.getElementById('vizType').value);
             formData.append('formant_scale', document.getElementById('formantScale').value);
             formData.append('limit_basic_vowels', limitBasicVowels.checked ? 'true' : 'false');
+            formData.append('formant_ceiling', document.getElementById('formantCeiling').value);
+            formData.append('custom_ceiling', document.getElementById('customCeiling').value);
+            formData.append('ceiling_criterion', document.getElementById('ceilingCriterion').value);
             
             // Add ellipse options if ellipse type is selected
             if (document.getElementById('vizType').value === 'ellipse') {
@@ -468,6 +502,23 @@ a,700,1200,1.5</pre>
                     summaryHTML += `<li><strong>Filters:</strong> Core vowels only (IPA: ${englishList}; Korean IPA: ${koreanList})${removalText}</li>`;
                 }
                 
+                if (summary.formant_ceiling) {
+                    const fc = summary.formant_ceiling;
+                    if (fc.mode === 'auto') {
+                        const critNames = { f3f4: 'F3–F4 stability', f1f2: 'within-vowel F1–F2 stability', combined: 'F1–F2 + F3–F4 stability' };
+                        summaryHTML += `<li><strong>Formant Ceiling:</strong> optimized per speaker (${critNames[fc.criterion] || fc.criterion})<ul>`;
+                        for (const [speaker, r] of Object.entries(fc.speakers || {})) {
+                            const ceil = r.ceiling !== null && r.ceiling !== undefined ? `${Math.round(r.ceiling)} Hz` : 'n/a';
+                            const used = r.criterion ? ` via ${critNames[r.criterion] || r.criterion}` : '';
+                            const note = r.note ? ` — ${r.note}` : '';
+                            summaryHTML += `<li>${speaker}: ${ceil}${used} (${r.n_tokens} tokens)${note}</li>`;
+                        }
+                        summaryHTML += '</ul></li>';
+                    } else if (fc.mode === 'fixed') {
+                        summaryHTML += `<li><strong>Formant Ceiling:</strong> fixed ${Math.round(fc.fixed_ceiling)} Hz</li>`;
+                    }
+                }
+
                 if (summary.vowels && summary.vowels.length > 0) {
                     summaryHTML += `<li><strong>Vowel Types:</strong> ${summary.vowels.join(', ')}</li>`;
                 }

@@ -263,6 +263,25 @@ a	700	1200	1.5
 
 TextGrid 파일은 Praat 형식이어야 하며, 모음 레이블이 포함된 interval tier가 있어야 합니다.
 
+#### 포먼트 ceiling(최대 포먼트 주파수) 설정
+
+Praat의 기본 ceiling은 성별 고정값(남성 5000 Hz / 여성 5500 Hz)입니다. 화자의 성도 길이와 맞지 않는 ceiling은
+포먼트 병합·분리 오류를 일으키므로, 본 앱은 기본적으로 **화자별로 ceiling을 자동 최적화**합니다.
+
+| 옵션 | 동작 |
+|------|------|
+| `Auto per speaker` (기본) | 파일명 첫 토큰을 화자 ID로 묶고, 4000–8000 Hz를 100 Hz 간격으로 훑은 뒤 20 Hz 간격으로 미세 탐색하여 기준값이 최소가 되는 ceiling을 사용 |
+| `F3–F4 stability` (기준 기본값) | 모든 모음 토큰에 걸친 20·log₁₀F3 + 20·log₁₀F4 분산 최소화 (Feinberg 2019, OSF 사전등록 PDWCB). 모음당 1토큰만 있어도 동작 |
+| `Within-vowel F1–F2 stability` | 같은 모음 반복 토큰 내 20·log₁₀F1 + 20·log₁₀F2 분산(pooled) 최소화 (Escudero et al. 2009). 반복 토큰이 없으면 F3–F4 기준으로 자동 대체 |
+| `Fixed 5500 / 5000 / Custom` | 기존 방식과 동일한 고정 ceiling |
+
+추출 결과 CSV에는 F1–F4와 사용된 ceiling(`formant_ceiling` 열)이 포함되며, 화면 요약에 화자별 ceiling이 표시됩니다.
+구현: `utils/formant_ceiling.py`.
+
+참고문헌
+- Escudero, P., Boersma, P., Rauber, A. S., & Bion, R. A. H. (2009). A cross-dialect acoustic description of vowels: Brazilian and European Portuguese. *JASA*, 126(3), 1379–1393.
+- Feinberg, D. R. (2019). Automated Formant Ceiling Settings. OSF Preregistration. https://doi.org/10.17605/OSF.IO/PDWCB
+
 ### 시각화 유형 선택
 
 - **정적 모음 공간**: F1-F2 평면에서 모음의 분포를 보여줍니다 (모음/화자/언어별 자동 그룹화)
