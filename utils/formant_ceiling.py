@@ -283,9 +283,99 @@ def _smooth3(values):
     return out
 
 
-def optimize_ceiling(items, criterion='f3f4',
+MIN_TOKENS_PER_VOWEL = 5   # per-vowel optimisation needs at least this many tokens
+# Per-vowel ceilings are searched within this factor range of the speaker
+# ceiling (about -20%/+25%, the span of Praat's FormantPath default of
+# 4 steps of 5% up and down). Escudero et al. (2009) found about +-10-15%
+# between vowels of one speaker.
+VOWEL_WINDOW = (0.8, 1.25)
+SCOPES = ('speaker', 'vowel')
+
+
+class _Sweep:
+    """
+    Coarse-to-fine ceiling search over a set of (sound, tokens) items with a
+    per-ceiling measurement cache, so that per-vowel searches can reuse the
+    coarse pass made for the whole speaker.
+    """
+
+    def __init__(self, items, criterion, min_ceiling, max_ceiling, coarse_step, fine_step):
+        self.items = items
+        self.labels = np.asarray([tok.get('vowel') or 'unlabeled' for _, toks in items for tok in toks])
+        self.criterion = criterion
+        self.min_ceiling, self.max_ceiling = min_ceiling, max_ceiling
+        self.coarse_step, self.fine_step = coarse_step, fine_step
+        self.cache = {}          # ceiling -> (n_tokens x 4) F1..F4
+        self.used_criterion = criterion
+
+    def measure(self, ceiling):
+        ceiling = float(round(ceiling))
+        if ceiling not in self.cache:
+            self.cache[ceiling] = np.vstack([measure_tokens(sound, toks, ceiling)
+                                             for sound, toks in self.items])
+        return self.cache[ceiling]
+
+    def score(self, ceiling, mask=None):
+        F = self.measure(ceiling)
+        labels = self.labels
+        if mask is not None:
+            F, labels = F[mask], labels[mask]
+        score, used = score_measurements(F, labels, self.criterion)
+        self.used_criterion = used
+        return score
+
+    def coarse_grid(self, lo=None, hi=None):
+        lo = self.min_ceiling if lo is None else max(lo, self.min_ceiling)
+        hi = self.max_ceiling if hi is None else min(hi, self.max_ceiling)
+        grid = np.arange(self.min_ceiling, self.max_ceiling + 0.5, self.coarse_step)
+        return grid[(grid >= lo - 1e-6) & (grid <= hi + 1e-6)]
+
+    def best_coarse(self, mask=None, lo=None, hi=None):
+        grid = self.coarse_grid(lo, hi)
+        if len(grid) == 0:
+            return None, np.array([])
+        scores = np.array([self.score(c, mask) for c in grid])
+        if not np.isfinite(scores).any():
+            return None, scores
+        return float(grid[int(np.argmin(_smooth3(scores)))]), scores
+
+    def fine_candidates(self, best_coarse, lo=None, hi=None):
+        lo = self.min_ceiling if lo is None else max(lo, self.min_ceiling)
+        hi = self.max_ceiling if hi is None else min(hi, self.max_ceiling)
+        fine = np.arange(best_coarse - self.coarse_step, best_coarse + self.coarse_step + 0.5, self.fine_step)
+        return fine[(fine >= lo - 1e-6) & (fine <= hi + 1e-6)]
+
+    def sweep_list(self, mask=None):
+        out = []
+        for c in sorted(self.cache):
+            s = self.score(c, mask)
+            out.append([float(c), None if not np.isfinite(s) else round(float(s), 4)])
+        return out
+
+
+def _finish(sweep, best_coarse, scorer, n_tokens, sweep_list, lo=None, hi=None):
+    """Fine search around ``best_coarse`` using ``scorer(ceiling)``; returns result dict."""
+    candidates = {}
+    for c in sweep.fine_candidates(best_coarse, lo, hi):
+        s = scorer(c)
+        if np.isfinite(s):
+            candidates[float(round(c))] = s
+    if not candidates:
+        return None
+    best = min(candidates, key=candidates.get)
+    return {
+        'ceiling': float(best),
+        'criterion': sweep.used_criterion,
+        'score': round(float(candidates[best]), 4),
+        'n_tokens': int(n_tokens),
+        'sweep': sweep_list,
+    }
+
+
+def optimize_ceiling(items, criterion='f3f4', scope='speaker',
                      min_ceiling=DEFAULT_MIN_CEILING, max_ceiling=DEFAULT_MAX_CEILING,
-                     coarse_step=COARSE_STEP, fine_step=FINE_STEP, fallback=5500.0):
+                     coarse_step=COARSE_STEP, fine_step=FINE_STEP, fallback=5500.0,
+                     min_tokens_per_vowel=MIN_TOKENS_PER_VOWEL):
     """
     Find the formant ceiling that gives the most stable formants for a speaker.
 
@@ -293,13 +383,22 @@ def optimize_ceiling(items, criterion='f3f4',
         items: list of (sound, tokens) pairs - all recordings of one speaker.
                ``tokens`` is a list of dicts with ``start``, ``end``, ``vowel``.
         criterion: 'f3f4', 'f1f2' or 'combined'.
+        scope: 'speaker' gives one ceiling per speaker. 'vowel' additionally
+               optimises a separate ceiling for every vowel category with at
+               least ``min_tokens_per_vowel`` tokens (Escudero et al. 2009),
+               searched within ``VOWEL_WINDOW`` times the speaker ceiling;
+               other vowels keep the speaker ceiling.
         fallback: ceiling returned when no ceiling could be scored.
 
     Returns a dict with ``ceiling``, ``criterion`` (the one actually used),
-    ``score``, ``n_tokens`` and ``sweep`` (list of [ceiling, score]).
+    ``score``, ``n_tokens``, ``sweep`` (list of [ceiling, score]) and, for
+    scope 'vowel', ``vowels``: {vowel: {ceiling, criterion, score, n_tokens,
+    note}}.
     """
     if criterion not in CRITERIA:
         raise ValueError(f"Unknown criterion {criterion!r}; expected one of {CRITERIA}")
+    if scope not in SCOPES:
+        raise ValueError(f"Unknown scope {scope!r}; expected one of {SCOPES}")
 
     items = [(s, t) for s, t in items if t]
     n_tokens = sum(len(t) for _, t in items)
@@ -310,48 +409,53 @@ def optimize_ceiling(items, criterion='f3f4',
     # Cap the amount of audio used for the sweep, then analyse only the
     # (padded) token regions
     items = subsample_tokens(items)
-    items = [build_sweep_sound(sound, toks) for sound, toks in items]
-    items = [(s, t) for s, t in items if t]
-    labels = [tok.get('vowel') or 'unlabeled' for _, toks in items for tok in toks]
+    sweep_items = [build_sweep_sound(sound, toks) for sound, toks in items]
+    sweep_items = [(s, t) for s, t in sweep_items if t]
+    sweep = _Sweep(sweep_items, criterion, min_ceiling, max_ceiling, coarse_step, fine_step)
 
-    cache = {}
-    used_criterion = criterion
+    # ---- speaker-level ceiling ----
+    best_coarse, _ = sweep.best_coarse()
+    result = None
+    if best_coarse is not None:
+        result = _finish(sweep, best_coarse, lambda c: sweep.score(c), n_tokens, None)
+    if result is None:
+        result = {'ceiling': float(fallback), 'criterion': sweep.used_criterion, 'score': None,
+                  'n_tokens': n_tokens, 'sweep': sweep.sweep_list(),
+                  'note': 'no ceiling produced stable F1-F4; fixed ceiling used'}
+    else:
+        result['sweep'] = sweep.sweep_list()
+    if scope != 'vowel':
+        return result
 
-    def evaluate(ceiling):
-        nonlocal used_criterion
-        ceiling = float(round(ceiling))
-        if ceiling in cache:
-            return cache[ceiling]
-        F = np.vstack([measure_tokens(sound, toks, ceiling) for sound, toks in items])
-        score, used = score_measurements(F, labels, criterion)
-        used_criterion = used
-        cache[ceiling] = score
-        return score
-
-    coarse = np.arange(min_ceiling, max_ceiling + 0.5, coarse_step)
-    coarse_scores = np.array([evaluate(c) for c in coarse])
-    if not np.isfinite(coarse_scores).any():
-        return {'ceiling': float(fallback), 'criterion': used_criterion, 'score': None,
-                'n_tokens': n_tokens, 'sweep': [[float(c), None] for c in coarse],
-                'note': 'no ceiling produced stable F1-F4; fixed ceiling used'}
-
-    best_coarse = coarse[int(np.argmin(_smooth3(coarse_scores)))]
-
-    fine = np.arange(best_coarse - coarse_step, best_coarse + coarse_step + 0.5, fine_step)
-    fine = fine[(fine >= min_ceiling) & (fine <= max_ceiling)]
-    for c in fine:
-        evaluate(c)
-
-    candidates = {c: s for c, s in cache.items()
-                  if abs(c - best_coarse) <= coarse_step and np.isfinite(s)}
-    best = min(candidates, key=candidates.get)
-
-    sweep = sorted((float(c), (None if not np.isfinite(s) else round(float(s), 4)))
-                   for c, s in cache.items())
-    return {
-        'ceiling': float(best),
-        'criterion': used_criterion,
-        'score': round(float(candidates[best]), 4),
-        'n_tokens': n_tokens,
-        'sweep': [list(x) for x in sweep],
-    }
+    # ---- per-vowel ceilings (Escudero et al. 2009), reusing the coarse pass ----
+    result['vowels'] = {}
+    vowels, counts = np.unique(sweep.labels, return_counts=True)
+    for vowel, count in zip(vowels, counts):
+        if vowel == 'unlabeled':
+            continue
+        if count < min_tokens_per_vowel:
+            result['vowels'][str(vowel)] = {
+                'ceiling': result['ceiling'], 'criterion': None, 'score': None,
+                'n_tokens': int(count),
+                'note': f'fewer than {min_tokens_per_vowel} tokens; speaker ceiling used'}
+            continue
+        mask = sweep.labels == vowel
+        lo, hi = result['ceiling'] * VOWEL_WINDOW[0], result['ceiling'] * VOWEL_WINDOW[1]
+        v_coarse, _ = sweep.best_coarse(mask, lo, hi)
+        v_result = None
+        if v_coarse is not None:
+            # Fine search on a sweep sound that contains only this vowel's
+            # tokens, so each extra analysis costs only that vowel's audio.
+            v_items = [build_sweep_sound(sound, [t for t in toks if (t.get('vowel') or 'unlabeled') == vowel])
+                       for sound, toks in items]
+            v_items = [(s, t) for s, t in v_items if t]
+            v_sweep = _Sweep(v_items, criterion, min_ceiling, max_ceiling, coarse_step, fine_step)
+            v_result = _finish(v_sweep, v_coarse, lambda c: v_sweep.score(c), count, None, lo, hi)
+            if v_result is not None:
+                v_result['sweep'] = v_sweep.sweep_list()
+        if v_result is None:
+            v_result = {'ceiling': result['ceiling'], 'criterion': None, 'score': None,
+                        'n_tokens': int(count), 'sweep': [],
+                        'note': 'no stable ceiling for this vowel; speaker ceiling used'}
+        result['vowels'][str(vowel)] = v_result
+    return result

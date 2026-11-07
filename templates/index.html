@@ -55,6 +55,11 @@
                                 <option value="f1f2">Within-vowel F1–F2 stability (Escudero et al. 2009; needs repeated vowels)</option>
                                 <option value="combined">Both combined</option>
                             </select>
+                            <label for="ceilingScope" style="font-weight: normal; margin-top: 0.3rem; display: block;">Optimize per:</label>
+                            <select id="ceilingScope" name="ceiling_scope">
+                                <option value="speaker" selected>Speaker (one ceiling per speaker)</option>
+                                <option value="vowel">Speaker × vowel (Escudero et al. 2009; vowels with ≥5 tokens)</option>
+                            </select>
                         </div>
                         <p class="help-text">Auto sweeps 4000–8000 Hz per speaker (speaker = first part of the file name) and picks the ceiling with the most stable formants instead of a fixed sex-based value. Takes a few seconds per speaker.</p>
                     </div>
@@ -123,6 +128,7 @@
                                             A lower score means fewer tracking errors.</li>
                                         <li><strong>Reject impossible results:</strong> a ceiling is discarded, whatever its score, if more than 20% of tokens lack F3/F4, if the median F1 is above 1200 Hz, if the median F4 is below 2900 Hz, or if F1 and F2 are merged (F2 − F1 &lt; 150 Hz) in more than 20% of tokens. This guards against a low score that is only low because formants were merged consistently (heuristics from Fast Track, Barreda 2021).</li>
                                         <li><strong>Refine:</strong> the score curve is smoothed over three neighbouring ceilings, the best 100 Hz step is taken, and the ±100 Hz region around it is re-searched in 20 Hz steps. The lowest-scoring ceiling wins; if nothing is valid, 5500 Hz is used.</li>
+                                        <li><strong>Optional: one ceiling per vowel (Optimize per: Speaker × vowel):</strong> Escudero et al. (2009) found that the best ceiling also differs between vowels of the same speaker (e.g. /u/ ≈ 4600 Hz vs /i/ ≈ 5600 Hz), because the tongue shape changes the higher formants. With this option, after the speaker ceiling is found, every vowel category with at least 5 tokens gets its own search: the same scoring is applied to that vowel's tokens only, within 0.8–1.25 × the speaker ceiling (so a few noisy tokens cannot drag the ceiling to an extreme value). Vowels with fewer tokens keep the speaker ceiling. Each token's CSV row records the ceiling actually used. Escudero et al. had 20 tokens per vowel; with fewer than about 10 the per-vowel estimate is noisy, so use this option when your recordings contain repeated vowels.</li>
                                         <li><strong>Report:</strong> the chosen ceiling, criterion and token count per speaker appear in the Data Summary after processing.</li>
                                     </ol>
                                     <p>Typical outcome on the bundled test files: female speaker → about 5600 Hz, male speaker → about 4800 Hz, and the within-vowel spread of F1/F2 for the male speaker shrank by roughly 15–45% compared with a fixed 5500 Hz ceiling.</p>
@@ -340,6 +346,7 @@ a,700,1200,1.5</pre>
             formData.append('formant_ceiling', document.getElementById('formantCeiling').value);
             formData.append('custom_ceiling', document.getElementById('customCeiling').value);
             formData.append('ceiling_criterion', document.getElementById('ceilingCriterion').value);
+            formData.append('ceiling_scope', document.getElementById('ceilingScope').value);
             
             // Add ellipse options if ellipse type is selected
             if (document.getElementById('vizType').value === 'ellipse') {
@@ -542,12 +549,21 @@ a,700,1200,1.5</pre>
                     const fc = summary.formant_ceiling;
                     if (fc.mode === 'auto') {
                         const critNames = { f3f4: 'F3–F4 stability', f1f2: 'within-vowel F1–F2 stability', combined: 'F1–F2 + F3–F4 stability' };
-                        summaryHTML += `<li><strong>Formant Ceiling:</strong> optimized per speaker (${critNames[fc.criterion] || fc.criterion})<ul>`;
+                        const scopeText = fc.scope === 'vowel' ? 'per speaker × vowel' : 'per speaker';
+                        summaryHTML += `<li><strong>Formant Ceiling:</strong> optimized ${scopeText} (${critNames[fc.criterion] || fc.criterion})<ul>`;
                         for (const [speaker, r] of Object.entries(fc.speakers || {})) {
                             const ceil = r.ceiling !== null && r.ceiling !== undefined ? `${Math.round(r.ceiling)} Hz` : 'n/a';
                             const used = r.criterion ? ` via ${critNames[r.criterion] || r.criterion}` : '';
                             const note = r.note ? ` — ${r.note}` : '';
-                            summaryHTML += `<li>${speaker}: ${ceil}${used} (${r.n_tokens} tokens)${note}</li>`;
+                            summaryHTML += `<li>${speaker}: ${ceil}${used} (${r.n_tokens} tokens)${note}`;
+                            if (r.vowels) {
+                                const parts = Object.entries(r.vowels).map(([v, vr]) => {
+                                    const own = vr.criterion ? `${Math.round(vr.ceiling)} Hz` : `${Math.round(vr.ceiling)} Hz*`;
+                                    return `${v} ${own} (n=${vr.n_tokens})`;
+                                });
+                                summaryHTML += `<br><small>per vowel: ${parts.join(' · ')} &nbsp;(* = speaker ceiling, too few tokens)</small>`;
+                            }
+                            summaryHTML += '</li>';
                         }
                         summaryHTML += '</ul></li>';
                     } else if (fc.mode === 'fixed') {

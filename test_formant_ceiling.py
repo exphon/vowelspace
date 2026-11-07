@@ -69,9 +69,35 @@ def test_pipeline_reduces_within_vowel_spread():
     assert sa <= sf
 
 
+def test_per_vowel_scope():
+    wavs = sorted(glob.glob('test/mv01*.wav'))
+    items = [(parselmouth.Sound(w), collect_vowel_tokens(parselmouth.read(w.replace('.wav', '.TextGrid'))))
+             for w in wavs]
+    r = optimize_ceiling(items, criterion='f1f2', scope='vowel')
+    assert 'vowels' in r and r['vowels']
+    for v, vr in r['vowels'].items():
+        if vr['criterion']:                       # optimised vowel
+            assert vr['n_tokens'] >= 5
+            assert 0.8 * r['ceiling'] - 1 <= vr['ceiling'] <= 1.25 * r['ceiling'] + 1, (v, vr)
+        else:                                     # fell back to speaker ceiling
+            assert vr['ceiling'] == r['ceiling']
+    own = {v: int(vr['ceiling']) for v, vr in r['vowels'].items() if vr['criterion']}
+    print(f'per-vowel (speaker {r["ceiling"]:.0f} Hz): {own}')
+
+    tgs = [w.replace('.wav', '.TextGrid') for w in wavs]
+    df, meta = process_wav_textgrid(wavs, tgs, ceiling_mode='auto', ceiling_criterion='f1f2',
+                                    ceiling_scope='vowel')
+    used = df.groupby('vowel')['formant_ceiling'].nunique()
+    assert (used == 1).all(), used                 # one ceiling per vowel category
+    assert meta['formant_ceiling']['scope'] == 'vowel'
+    for v, c in own.items():
+        assert int(df[df['vowel'] == v]['formant_ceiling'].iloc[0]) == c, v
+
+
 if __name__ == '__main__':
     test_scores()
     test_sweep_sound_matches_full()
     test_optimize_per_speaker()
     test_pipeline_reduces_within_vowel_spread()
+    test_per_vowel_scope()
     print('all ok')

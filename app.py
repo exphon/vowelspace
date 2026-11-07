@@ -160,23 +160,27 @@ def parse_ceiling_options(form):
 
     ``formant_ceiling`` is 'auto' (per-speaker optimisation), a number in Hz,
     or 'custom' with the value in ``custom_ceiling``. ``ceiling_criterion`` is
-    'f3f4' (default), 'f1f2' or 'combined'.
-    Returns (mode, fixed_ceiling_hz, criterion).
+    'f3f4' (default), 'f1f2' or 'combined'. ``ceiling_scope`` is 'speaker'
+    (default) or 'vowel' (extra ceiling per speaker x vowel).
+    Returns (mode, fixed_ceiling_hz, criterion, scope).
     """
     raw = (form.get('formant_ceiling') or 'auto').strip().lower()
     criterion = (form.get('ceiling_criterion') or 'f3f4').strip().lower()
     if criterion not in ('f3f4', 'f1f2', 'combined'):
         criterion = 'f3f4'
+    scope = (form.get('ceiling_scope') or 'speaker').strip().lower()
+    if scope not in ('speaker', 'vowel'):
+        scope = 'speaker'
     if raw == 'auto':
-        return 'auto', 5500.0, criterion
+        return 'auto', 5500.0, criterion, scope
     if raw == 'custom':
         raw = (form.get('custom_ceiling') or '').strip()
     try:
         ceiling = float(raw)
     except ValueError:
-        return 'auto', 5500.0, criterion
+        return 'auto', 5500.0, criterion, scope
     ceiling = min(max(ceiling, 3000.0), 8000.0)
-    return 'fixed', ceiling, criterion
+    return 'fixed', ceiling, criterion, scope
 
 
 def summarize_ceiling_info(metadata):
@@ -193,10 +197,15 @@ def summarize_ceiling_info(metadata):
             'n_tokens': r.get('n_tokens'),
             'files': r.get('files'),
             'note': r.get('note'),
+            'vowels': {
+                v: {k: vr.get(k) for k in ('ceiling', 'criterion', 'score', 'n_tokens', 'note')}
+                for v, vr in (r.get('vowels') or {}).items()
+            } or None,
         }
     return {
         'mode': info.get('mode'),
         'criterion': info.get('criterion'),
+        'scope': info.get('scope'),
         'fixed_ceiling': info.get('fixed_ceiling'),
         'speakers': speakers,
     }
@@ -219,7 +228,7 @@ def upload_file():
         show_points = request.form.get('show_points', 'true') == 'true'
         formant_scale = request.form.get('formant_scale', 'Hz')  # Get scale option
         limit_basic_vowels = request.form.get('limit_basic_vowels', 'false') == 'true'
-        ceiling_mode, fixed_ceiling, ceiling_criterion = parse_ceiling_options(request.form)
+        ceiling_mode, fixed_ceiling, ceiling_criterion, ceiling_scope = parse_ceiling_options(request.form)
         
         if not files or files[0].filename == '':
             return jsonify({'error': 'Please select a file.'}), 400
@@ -307,6 +316,7 @@ def upload_file():
                 ceiling_mode=ceiling_mode,
                 fixed_ceiling=fixed_ceiling,
                 ceiling_criterion=ceiling_criterion,
+                ceiling_scope=ceiling_scope,
             )
             if isinstance(result, tuple):
                 data, metadata = result

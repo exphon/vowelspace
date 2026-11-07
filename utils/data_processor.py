@@ -237,7 +237,8 @@ TARGET_SAMPLING_RATE = 16000
 
 
 def process_wav_textgrid(wav_files, textgrid_files=None, ceiling_mode='auto',
-                         fixed_ceiling=5500.0, ceiling_criterion='f3f4'):
+                         fixed_ceiling=5500.0, ceiling_criterion='f3f4',
+                         ceiling_scope='speaker'):
     """
     Process WAV files and optional TextGrid files to extract formant data.
 
@@ -250,6 +251,9 @@ def process_wav_textgrid(wav_files, textgrid_files=None, ceiling_mode='auto',
                        as the fallback when optimisation is impossible.
         ceiling_criterion: 'f3f4' (default), 'f1f2' (Escudero et al. 2009) or
                            'combined'.
+        ceiling_scope: 'speaker' (one ceiling per speaker) or 'vowel' (an
+                       additional ceiling per speaker x vowel when the vowel
+                       has enough tokens; others keep the speaker ceiling).
 
     Returns a tuple: (DataFrame with F1-F4, vowel labels, time information and
     the ceiling used, metadata dict)
@@ -258,10 +262,12 @@ def process_wav_textgrid(wav_files, textgrid_files=None, ceiling_mode='auto',
         print("Parselmouth not installed. Cannot process audio files.")
         return pd.DataFrame(), None
 
-    from .formant_ceiling import compute_formant, measure_token, optimize_ceiling, CRITERIA
+    from .formant_ceiling import compute_formant, measure_token, optimize_ceiling, CRITERIA, SCOPES
 
     if ceiling_criterion not in CRITERIA:
         ceiling_criterion = 'f3f4'
+    if ceiling_scope not in SCOPES:
+        ceiling_scope = 'speaker'
     try:
         fixed_ceiling = float(fixed_ceiling)
     except (TypeError, ValueError):
@@ -277,6 +283,7 @@ def process_wav_textgrid(wav_files, textgrid_files=None, ceiling_mode='auto',
         'formant_ceiling': {
             'mode': ceiling_mode,
             'criterion': ceiling_criterion if ceiling_mode == 'auto' else None,
+            'scope': ceiling_scope if ceiling_mode == 'auto' else None,
             'fixed_ceiling': fixed_ceiling if ceiling_mode == 'fixed' else None,
             'speakers': {},
         },
@@ -325,8 +332,9 @@ def process_wav_textgrid(wav_files, textgrid_files=None, ceiling_mode='auto',
             print(f"Error loading {wav_file}: {e}")
             metadata['processing_info'].append(f"✗ {os.path.basename(wav_file)}: {e}")
 
-    # ---- Pass 2: choose a ceiling per speaker ----
-    speaker_ceiling = {}
+    # ---- Pass 2: choose a ceiling per speaker (and per vowel if requested) ----
+    speaker_ceiling = {}          # speaker -> ceiling
+    vowel_ceiling = {}            # speaker -> {vowel: ceiling}
     if ceiling_mode == 'auto':
         groups = {}
         for entry in entries:
@@ -334,13 +342,15 @@ def process_wav_textgrid(wav_files, textgrid_files=None, ceiling_mode='auto',
         for speaker, group in groups.items():
             items = [(e['sound'], e['tokens']) for e in group]
             try:
-                result = optimize_ceiling(items, criterion=ceiling_criterion, fallback=fixed_ceiling)
+                result = optimize_ceiling(items, criterion=ceiling_criterion, scope=ceiling_scope,
+                                          fallback=fixed_ceiling)
             except Exception as e:
                 print(f"Ceiling optimisation failed for {speaker}: {e}")
                 result = {'ceiling': fixed_ceiling, 'criterion': None, 'score': None,
                           'n_tokens': sum(len(e['tokens']) for e in group), 'sweep': [],
                           'note': f'optimisation failed ({e}); fixed ceiling used'}
             speaker_ceiling[speaker] = result['ceiling']
+            vowel_ceiling[speaker] = {v: r['ceiling'] for v, r in (result.get('vowels') or {}).items()}
             metadata['formant_ceiling']['speakers'][speaker] = {
                 **result,
                 'files': [e['basename'] for e in group],
@@ -350,19 +360,32 @@ def process_wav_textgrid(wav_files, textgrid_files=None, ceiling_mode='auto',
                 f"⚙ {speaker}: formant ceiling {result['ceiling']:.0f} Hz "
                 f"({crit}, {result['n_tokens']} tokens)"
             )
+            for v, r in (result.get('vowels') or {}).items():
+                if r.get('criterion'):
+                    metadata['processing_info'].append(
+                        f"    {v}: {r['ceiling']:.0f} Hz ({r['n_tokens']} tokens)")
     else:
         for entry in entries:
             speaker_ceiling[entry['speaker_key']] = fixed_ceiling
 
-    # ---- Pass 3: extract formants with the chosen ceiling ----
+    # ---- Pass 3: extract formants with the chosen ceiling(s) ----
     all_data = []
     for entry in entries:
         basename = entry['basename']
         ceiling = speaker_ceiling.get(entry['speaker_key'], fixed_ceiling)
+        per_vowel = vowel_ceiling.get(entry['speaker_key'], {})
         try:
-            formant = compute_formant(entry['sound'], ceiling)
-            file_data = extract_token_formants(formant, entry['tokens'], entry['file_metadata'],
-                                               basename, ceiling, measure_token)
+            # Group tokens by the ceiling they need; one Praat analysis per ceiling
+            by_ceiling = {}
+            for tok in entry['tokens']:
+                c = per_vowel.get(tok.get('vowel'), ceiling)
+                by_ceiling.setdefault(c, []).append(tok)
+            file_data = []
+            for c, toks in by_ceiling.items():
+                formant = compute_formant(entry['sound'], c)
+                file_data.extend(extract_token_formants(formant, toks, entry['file_metadata'],
+                                                        basename, c, measure_token))
+            file_data.sort(key=lambda d: d['time'])
             vowel_count = len(file_data)
             metadata['files'].append({
                 'wav_file': os.path.basename(entry['wav_file']),

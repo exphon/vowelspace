@@ -303,6 +303,13 @@ WAV 파일과 같은 이름의 TextGrid 파일을 함께 올리면 TextGrid에 �
 5. **미세 탐색**: 점수 곡선을 이웃 3개로 평활화해 가장 좋은 100 Hz 지점을 고르고, 그 ±100 Hz 구간을 20 Hz 간격으로
    다시 탐색합니다. 점수가 가장 낮은 ceiling을 채택하고, 유효한 것이 없으면 5500 Hz를 씁니다.
 6. **보고**: 화자별로 채택된 ceiling, 사용된 기준, 토큰 수가 처리 후 Data Summary에 표시됩니다.
+7. **선택: 모음별 ceiling**(`Optimize per: Speaker × vowel`): Escudero et al.(2009)은 같은 화자라도 모음에 따라 최적
+   ceiling이 다르다고 보고했습니다(예: /u/ ≈ 4600 Hz, /i/ ≈ 5600 Hz). 혀 모양이 고차 포먼트를 바꾸기 때문입니다.
+   이 옵션을 켜면 화자 ceiling을 구한 뒤, 토큰이 5개 이상인 모음 범주마다 그 모음의 토큰만으로 같은 점수를 계산해
+   따로 탐색합니다. 탐색 범위는 화자 ceiling의 0.8–1.25배로 제한해 토큰 몇 개의 잡음이 극단값을 고르지 못하게 합니다.
+   토큰이 부족한 모음은 화자 ceiling을 그대로 씁니다. CSV의 각 행에는 실제 사용된 ceiling이 기록됩니다.
+   Escudero et al.은 모음당 토큰 20개를 썼습니다. 10개 미만이면 모음별 추정이 불안정하므로 같은 모음을 여러 번
+   녹음한 자료에 쓰는 것을 권합니다.
 
 동봉된 테스트 음성에서는 여성 화자 약 5600 Hz, 남성 화자 약 4800 Hz가 선택됐고, 남성 화자의 모음 내 F1/F2
 산포는 고정 5500 Hz 대비 약 15–45% 줄었습니다.
@@ -316,6 +323,8 @@ WAV 파일과 같은 이름의 TextGrid 파일을 함께 올리면 TextGrid에 �
 | `F3–F4 stability` (기준 기본값) | 전체 모음 토큰의 20·log₁₀F3, 20·log₁₀F4 분산 합 최소화. 모음당 1토큰만 있어도 동작 |
 | `Within-vowel F1–F2 stability` | 같은 모음 반복 토큰 내 20·log₁₀F1, 20·log₁₀F2 분산(pooled) 합 최소화. 반복 토큰이 없으면 F3–F4 기준으로 자동 대체 |
 | `Both combined` | 두 점수의 합 |
+| `Optimize per: Speaker` (기본) | 화자당 ceiling 하나 |
+| `Optimize per: Speaker × vowel` | 토큰 5개 이상인 모음마다 화자 ceiling의 0.8–1.25배 범위에서 별도 ceiling 탐색 (Escudero et al. 2009) |
 | `Fixed 5500 / 5000 / Custom` | 고정 ceiling (기존 방식) |
 
 **3단계 · 모음 토큰 측정**
