@@ -97,18 +97,54 @@
                             <details class="extraction-method">
                                 <summary><strong>📖 TextGrid Formant Extraction Method</strong></summary>
                                 <div class="method-details">
-                                    <p><strong>How formants are extracted from WAV + TextGrid files:</strong></p>
+                                    <p>When you upload WAV + TextGrid pairs, the app measures the formants of every vowel with Praat (via the Parselmouth library). The pipeline has four stages. Each stage below explains <em>what</em> happens and <em>why</em>.</p>
+
+                                    <h4>Stage 1 · Prepare the audio and find the vowels</h4>
                                     <ol>
-                                        <li><strong>Audio Processing:</strong> WAV files are automatically resampled to 16kHz for optimal formant analysis</li>
-                                        <li><strong>Vowel Detection:</strong> Only vowel segments (ARPABET: AH, IY, etc. / IPA: ɪ, ʊ, ə, etc.) are analyzed</li>
-                                        <li><strong>Sampling Region:</strong> Formants are measured from the <strong>middle 25% of each vowel's duration</strong> (37.5% ~ 62.5% timepoints) to avoid coarticulation effects</li>
-                                        <li><strong>Averaging:</strong> 5 measurement points within the middle region are sampled and averaged for stability</li>
-                                        <li><strong>Quality Control:</strong> Outliers beyond ±3 standard deviations (per vowel type) are automatically removed</li>
-                                        <li><strong>Praat Settings:</strong> Formant extraction uses Burg's method with 5 formants, 25ms window, 10ms time step, 50 Hz pre-emphasis</li>
-                                        <li><strong>Formant Ceiling:</strong> By default the ceiling is optimized <strong>per speaker</strong>: ceilings from 4000 to 8000 Hz are swept (100 Hz steps, then 20 Hz refinement) and the one that minimizes the variance of 20·log₁₀F3 + 20·log₁₀F4 across all vowel tokens is used (Feinberg, 2019, OSF preregistration PDWCB). Alternatively the within-vowel variance of 20·log₁₀F1 + 20·log₁₀F2 can be minimized (Escudero, Boersma, Rauber &amp; Bion, 2009, JASA). Fixed ceilings (5000/5500 Hz or custom) remain available.</li>
-                                        <li><strong>Output:</strong> F1–F4 and the ceiling used are included in the downloadable CSV</li>
+                                        <li><strong>Pair the files:</strong> each WAV is matched to the TextGrid with the same file name (<code>spk01_t01.wav</code> ↔ <code>spk01_t01.TextGrid</code>).</li>
+                                        <li><strong>Read speaker info from the file name:</strong> the part before the first <code>_</code> or <code>-</code> is the speaker ID, the second part is the language/group (e.g. <code>fv01_kor_s01</code> → speaker <code>fv01</code>, language <code>kor</code>). All files of one speaker are analysed together.</li>
+                                        <li><strong>Resample to 16 kHz:</strong> formants live below 8 kHz, so higher sampling rates only add noise to the LPC analysis.</li>
+                                        <li><strong>Pick the vowel tier:</strong> the first tier whose name contains “vowel”, “phone” or “segment” is used; otherwise tier 1.</li>
+                                        <li><strong>Keep vowel intervals only:</strong> labels are recognised as ARPABET (AH, IY1 …), IPA (ɪ, ʊ, ə …) or plain roman vowels (a, e, i, o, u, eo …). Stress digits, length marks and diacritics are ignored. Consonants and silences are skipped.</li>
                                     </ol>
-                                    <p class="note-box">📊 <strong>Result:</strong> Each vowel segment yields one F1/F2 measurement pair (averaged and rounded to 1 decimal place)</p>
+
+                                    <h4>Stage 2 · Choose the formant ceiling for each speaker</h4>
+                                    <p>The <strong>formant ceiling</strong> (Praat’s “maximum formant”) tells the tracker the highest frequency in which to look for 5 formants. It should roughly equal the speaker’s F5 region, which depends on vocal-tract length. Praat’s rule of thumb is 5000 Hz for men and 5500 Hz for women, but real speakers vary a lot. A ceiling that is too low makes two true formants merge into one; too high makes one formant split into two. Both errors land in F1/F2 and distort the vowel space.</p>
+                                    <p>With <strong>Auto per speaker</strong> (the default) the app finds the best ceiling for each speaker instead of guessing from sex:</p>
+                                    <ol>
+                                        <li><strong>Cut out the vowels:</strong> only the vowel intervals (plus 50 ms on each side) are analysed, and at most 30 s of vowel audio per speaker, so the sweep stays fast.</li>
+                                        <li><strong>Try many ceilings:</strong> every ceiling from 4000 to 8000 Hz in 100 Hz steps (41 settings). For each one, Praat re-tracks the formants and the app measures F1–F4 of every vowel token (see Stage 3 for how a token is measured).</li>
+                                        <li><strong>Score each ceiling by how <em>stable</em> the formants are:</strong>
+                                            <ul>
+                                                <li><strong>F3–F4 stability</strong> (default; Feinberg 2019, OSF preregistration PDWCB): F3 and F4 change little from vowel to vowel, so when the ceiling is right they should be nearly constant across all tokens. The score is <code>var(20·log₁₀F3) + var(20·log₁₀F4)</code> over all tokens of the speaker. Works even with one token per vowel.</li>
+                                                <li><strong>Within-vowel F1–F2 stability</strong> (Escudero, Boersma, Rauber &amp; Bion 2009, JASA): repetitions of the same vowel should give the same F1/F2. The score is the pooled within-vowel <code>var(20·log₁₀F1) + var(20·log₁₀F2)</code>. Needs at least one vowel with 2+ tokens; otherwise the F3–F4 score is used automatically.</li>
+                                                <li><strong>Both combined:</strong> the two scores added together (both are in dB²).</li>
+                                            </ul>
+                                            A lower score means fewer tracking errors.</li>
+                                        <li><strong>Reject impossible results:</strong> a ceiling is discarded, whatever its score, if more than 20% of tokens lack F3/F4, if the median F1 is above 1200 Hz, if the median F4 is below 2900 Hz, or if F1 and F2 are merged (F2 − F1 &lt; 150 Hz) in more than 20% of tokens. This guards against a low score that is only low because formants were merged consistently (heuristics from Fast Track, Barreda 2021).</li>
+                                        <li><strong>Refine:</strong> the score curve is smoothed over three neighbouring ceilings, the best 100 Hz step is taken, and the ±100 Hz region around it is re-searched in 20 Hz steps. The lowest-scoring ceiling wins; if nothing is valid, 5500 Hz is used.</li>
+                                        <li><strong>Report:</strong> the chosen ceiling, criterion and token count per speaker appear in the Data Summary after processing.</li>
+                                    </ol>
+                                    <p>Typical outcome on the bundled test files: female speaker → about 5600 Hz, male speaker → about 4800 Hz, and the within-vowel spread of F1/F2 for the male speaker shrank by roughly 15–45% compared with a fixed 5500 Hz ceiling.</p>
+                                    <p>If you prefer the classic settings, choose <strong>Fixed 5500 Hz</strong>, <strong>Fixed 5000 Hz</strong> or <strong>Custom</strong>; then Stage 2 is skipped and every speaker gets that ceiling.</p>
+
+                                    <h4>Stage 3 · Measure every vowel token</h4>
+                                    <ol>
+                                        <li><strong>Praat analysis:</strong> <em>To Formant (burg)</em> with the chosen ceiling, 5 formants, 25 ms Gaussian window, 10 ms time step, pre-emphasis from 50 Hz. Burg’s method is Praat’s standard LPC formant tracker.</li>
+                                        <li><strong>Where in the vowel:</strong> the <strong>middle 25% of the interval</strong> (37.5%–62.5% of its duration). The edges of a vowel are coloured by the neighbouring consonants (coarticulation); the centre is closest to the vowel target. Intervals shorter than 20 ms are measured at their midpoint only.</li>
+                                        <li><strong>Average 5 points:</strong> F1, F2, F3 and F4 are read at 5 equally spaced times inside that region (linear interpolation between Praat frames) and averaged, which smooths out single-frame tracker jumps.</li>
+                                        <li><strong>Sanity range:</strong> a token is kept only if both F1 and F2 lie between 100 and 4000 Hz.</li>
+                                    </ol>
+
+                                    <h4>Stage 4 · Clean up and export</h4>
+                                    <ol>
+                                        <li><strong>Label normalisation:</strong> ARPABET and roman labels are converted to IPA for display (AH → ʌ, eo → ʌ, …); the original label is kept in <code>vowel_raw</code>.</li>
+                                        <li><strong>Outlier removal:</strong> within each vowel category, tokens more than ±3 standard deviations from the mean F1 or F2 are dropped before plotting.</li>
+                                        <li><strong>CSV download:</strong> one row per vowel token with <code>vowel, vowel_raw, F1, F2, F3, F4, time, duration, file, speaker, native_language, formant_ceiling</code> (all frequencies in Hz, rounded to 0.1 Hz). Bark/ERB/Mel conversion, if selected, is applied to F1/F2 for the plots only.</li>
+                                    </ol>
+
+                                    <p class="note-box">📊 <strong>Result:</strong> each vowel interval yields one F1/F2/F3/F4 measurement, taken with a ceiling tuned to that speaker’s voice. Auto mode adds a few seconds per speaker.</p>
+                                    <p class="method-refs"><strong>References:</strong> Escudero, Boersma, Rauber &amp; Bion (2009), <em>JASA</em> 126(3), 1379–1393 · Feinberg (2019), <em>Automated Formant Ceiling Settings</em>, OSF Registries, doi:10.17605/OSF.IO/PDWCB · Barreda (2021), Fast Track, <em>Linguistics Vanguard</em> 7(1) · Boersma &amp; Weenink, Praat manual, “Sound: To Formant (burg)…”.</p>
                                 </div>
                             </details>
                         </div>

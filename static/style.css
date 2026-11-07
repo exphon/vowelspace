@@ -594,6 +594,33 @@ footer {
     color: #764ba2;
 }
 
+.method-details h4 {
+    margin: 18px 0 6px;
+    color: #4a4a8a;
+    font-size: 1em;
+}
+
+.method-details p {
+    margin: 6px 0;
+}
+
+.method-details ul {
+    margin: 6px 0 6px 20px;
+}
+
+.method-details code {
+    background: #f1f3f7;
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 0.9em;
+}
+
+.method-details .method-refs {
+    margin-top: 12px;
+    font-size: 0.85em;
+    color: #666;
+}
+
 .note-box {
     margin-top: 15px;
     padding: 10px;
