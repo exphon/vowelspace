@@ -349,6 +349,33 @@ def create_static_vowel_space(df, scale='Hz'):
         return None
 
 
+def _trajectory_marker(n_points, max_arrows=12):
+    """
+    Marker settings that show the direction of a trajectory.
+
+    The first point is an open circle (start). Along the path, arrowhead
+    markers are oriented from the previous point (Plotly ``angleref=
+    'previous'``), so they point in the direction of travel; the last point
+    always carries an arrowhead. For long trajectories only every k-th point
+    gets an arrowhead so the plot stays readable, the rest are small dots.
+    """
+    n = max(int(n_points), 1)
+    step = max(1, int(np.ceil((n - 1) / max_arrows)))
+    symbols, sizes = [], []
+    for i in range(n):
+        if i == 0:
+            symbols.append('circle-open')
+            sizes.append(10)
+        elif i == n - 1 or i % step == 0:
+            symbols.append('arrow')
+            sizes.append(14)
+        else:
+            symbols.append('circle')
+            sizes.append(5)
+    return dict(symbol=symbols, size=sizes, angleref='previous', opacity=0.9,
+                line=dict(width=1.5))
+
+
 def create_dynamic_formant_trajectory(df, scale='Hz'):
     """
     Create an interactive dynamic formant trajectory plot
@@ -418,7 +445,7 @@ def create_dynamic_formant_trajectory(df, scale='Hz'):
                             legendgroup=f"{lang}_{speaker}",
                             legendgrouptitle=dict(text=f"<b>{lang}</b> - {speaker}"),
                             line=dict(color=colors[color_idx % len(colors)], width=2),
-                            marker=dict(size=8, opacity=0.7),
+                            marker=_trajectory_marker(len(vowel_data)),
                             text=hover_text,
                             hoverinfo='text'
                         ))
@@ -450,7 +477,7 @@ def create_dynamic_formant_trajectory(df, scale='Hz'):
                         legendgroup=speaker,
                         legendgrouptitle=dict(text=f"<b>{speaker}</b>"),
                         line=dict(color=colors[color_idx % len(colors)], width=2),
-                        marker=dict(size=8, opacity=0.7),
+                        marker=_trajectory_marker(len(vowel_data)),
                         text=hover_text,
                         hoverinfo='text'
                     ))
@@ -476,7 +503,7 @@ def create_dynamic_formant_trajectory(df, scale='Hz'):
                     mode='lines+markers',
                     name=vowel,
                     line=dict(color=colors[idx % len(colors)], width=2),
-                    marker=dict(size=8, opacity=0.7),
+                    marker=_trajectory_marker(len(vowel_data)),
                     text=hover_text,
                     hoverinfo='text'
                 ))
@@ -494,7 +521,7 @@ def create_dynamic_formant_trajectory(df, scale='Hz'):
             y=df_sorted['F1'],
             mode='lines+markers',
             line=dict(color='blue', width=2),
-            marker=dict(size=8, opacity=0.7),
+            marker=_trajectory_marker(len(df_sorted)),
             text=hover_text,
             hoverinfo='text'
         ))
@@ -515,7 +542,7 @@ def create_dynamic_formant_trajectory(df, scale='Hz'):
     
     # Update layout
     fig.update_layout(
-        title=f'Interactive Formant Trajectory - {scale}<br><sub>Click legend items to show/hide • Double-click to isolate</sub>',
+        title=f'Interactive Formant Trajectory - {scale}<br><sub>Arrowheads point in the direction of time (○ = start) • Click legend items to show/hide • Double-click to isolate</sub>',
         width=1000,
         height=700,
         plot_bgcolor='white',
