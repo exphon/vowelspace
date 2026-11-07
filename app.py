@@ -20,6 +20,7 @@ from utils.data_processor import (
 from utils.visualizer import (
     create_static_vowel_space, 
     create_dynamic_formant_trajectory,
+    create_formant_time_trajectory,
     create_vowel_space_with_ellipses,
     create_pca_plot,
     create_lda_plot,
@@ -398,6 +399,10 @@ def upload_file():
                 plot_json = create_static_vowel_space(data, scale=scale_label)
         elif visualization_type == 'dynamic':
             plot_json = create_dynamic_formant_trajectory(data, scale=scale_label)
+        elif visualization_type == 'trajectory_time':
+            plot_json = create_formant_time_trajectory(data, scale=scale_label)
+            if plot_json is None:
+                return jsonify({'error': 'Formant-over-time plot needs at least two time points per vowel production (a time column with several rows per vowel).'}), 400
         elif visualization_type == 'ellipse':
             plot_json = create_vowel_space_with_ellipses(data, confidence_level=0.95, show_points=show_points, scale=scale_label)
         else:
