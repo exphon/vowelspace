@@ -258,29 +258,93 @@ a	700	1200	1.5
 
 ### WAV 파일 업로드
 
-1. **WAV만**: 자동으로 포먼트를 추출합니다
-2. **WAV + TextGrid**: TextGrid의 레이블된 구간에서 포먼트를 추출합니다
+WAV 파일과 같은 이름의 TextGrid 파일을 함께 올리면 TextGrid에 레이블된 모음 구간에서 포먼트를 추출합니다.
+(`spk01_t01.wav` ↔ `spk01_t01.TextGrid`). WAV마다 TextGrid가 하나씩 필요하며, TextGrid는 Praat 형식이고
+모음 레이블이 포함된 interval tier가 있어야 합니다.
 
-TextGrid 파일은 Praat 형식이어야 하며, 모음 레이블이 포함된 interval tier가 있어야 합니다.
+#### 포먼트 추출 방법 (WAV + TextGrid)
 
-#### 포먼트 ceiling(최대 포먼트 주파수) 설정
+추출은 Praat(Parselmouth 라이브러리 경유)으로 수행되며 네 단계로 진행됩니다. 각 단계에서 *무엇을* 하고
+*왜* 그렇게 하는지 설명합니다. 웹 화면의 "📖 TextGrid Formant Extraction Method" 블록과 같은 내용입니다.
 
-Praat의 기본 ceiling은 성별 고정값(남성 5000 Hz / 여성 5500 Hz)입니다. 화자의 성도 길이와 맞지 않는 ceiling은
-포먼트 병합·분리 오류를 일으키므로, 본 앱은 기본적으로 **화자별로 ceiling을 자동 최적화**합니다.
+**1단계 · 오디오 준비와 모음 구간 찾기**
+
+1. **파일 짝 맞추기**: 확장자를 뺀 이름이 같은 WAV와 TextGrid를 한 쌍으로 묶습니다.
+2. **파일명에서 화자 정보 읽기**: 첫 번째 `_` 또는 `-` 앞부분이 화자 ID, 두 번째 부분이 언어/그룹입니다.
+   예: `fv01_kor_s01.wav` → 화자 `fv01`, 언어 `kor`. 같은 화자의 파일은 모두 함께 분석됩니다.
+3. **16 kHz로 리샘플링**: 포먼트는 8 kHz 아래에 있으므로, 더 높은 샘플링 주파수는 LPC 분석에 잡음만 더합니다.
+4. **모음 tier 선택**: tier 이름에 `vowel`, `phone`, `segment`가 들어간 첫 tier를 쓰고, 없으면 1번 tier를 씁니다.
+5. **모음 구간만 남기기**: ARPABET(AH, IY1 …), IPA(ɪ, ʊ, ə …), 로마자 모음(a, e, i, o, u, eo …)을 모음으로 인식합니다.
+   강세 숫자, 장음 기호, 발음 구별 부호는 무시하고, 자음과 묵음 구간은 건너뜁니다.
+
+**2단계 · 화자별 포먼트 ceiling 결정**
+
+**포먼트 ceiling**(Praat의 "maximum formant")은 포먼트 5개를 찾을 주파수 상한입니다. 화자의 F5 부근, 즉 성도
+길이에 맞아야 합니다. Praat의 경험칙은 남성 5000 Hz, 여성 5500 Hz이지만 실제 화자는 편차가 큽니다. ceiling이
+너무 낮으면 실제 포먼트 두 개가 하나로 병합되고, 너무 높으면 하나가 둘로 쪼개집니다. 두 오류 모두 F1/F2에
+들어가 모음 공간을 왜곡합니다.
+
+기본값인 **Auto per speaker**는 성별로 추정하지 않고 화자마다 최적 ceiling을 찾습니다.
+
+1. **모음 구간만 잘라내기**: 모음 구간(앞뒤 50 ms 여유 포함)만 분석하고, 화자당 최대 30초 분량만 사용해 속도를 확보합니다.
+2. **여러 ceiling 시도**: 4000–8000 Hz를 100 Hz 간격으로 41개 설정을 모두 시도합니다. 설정마다 Praat이 포먼트를
+   다시 추적하고, 앱은 모든 모음 토큰의 F1–F4를 측정합니다(토큰 측정 방식은 3단계 참조).
+3. **포먼트의 *안정성*으로 ceiling 점수화**: 점수가 낮을수록 추적 오류가 적다는 뜻입니다.
+   - **F3–F4 stability**(기본; Feinberg 2019, OSF 사전등록 PDWCB): F3와 F4는 모음에 따라 거의 변하지 않으므로
+     ceiling이 맞으면 모든 토큰에서 거의 일정해야 합니다. 점수 = 화자의 전체 토큰에 대한
+     `var(20·log₁₀F3) + var(20·log₁₀F4)`. 모음당 토큰이 하나뿐이어도 동작합니다.
+   - **Within-vowel F1–F2 stability**(Escudero, Boersma, Rauber & Bion 2009, JASA): 같은 모음을 반복하면 F1/F2가
+     같아야 합니다. 점수 = 모음 내 pooled `var(20·log₁₀F1) + var(20·log₁₀F2)`. 토큰이 2개 이상인 모음이 하나는 있어야
+     하며, 없으면 F3–F4 점수로 자동 대체됩니다.
+   - **Both combined**: 두 점수의 합(둘 다 dB² 단위).
+4. **불가능한 결과 기각**: 점수와 무관하게 다음 경우 그 ceiling을 버립니다. F3/F4가 없는 토큰이 20% 초과,
+   F1 중앙값 1200 Hz 초과, F4 중앙값 2900 Hz 미만, F1·F2 병합(F2 − F1 < 150 Hz) 토큰이 20% 초과.
+   포먼트가 일관되게 병합돼 분산이 낮아 보이는 경우를 막기 위한 장치입니다(Fast Track의 휴리스틱, Barreda 2021).
+5. **미세 탐색**: 점수 곡선을 이웃 3개로 평활화해 가장 좋은 100 Hz 지점을 고르고, 그 ±100 Hz 구간을 20 Hz 간격으로
+   다시 탐색합니다. 점수가 가장 낮은 ceiling을 채택하고, 유효한 것이 없으면 5500 Hz를 씁니다.
+6. **보고**: 화자별로 채택된 ceiling, 사용된 기준, 토큰 수가 처리 후 Data Summary에 표시됩니다.
+
+동봉된 테스트 음성에서는 여성 화자 약 5600 Hz, 남성 화자 약 4800 Hz가 선택됐고, 남성 화자의 모음 내 F1/F2
+산포는 고정 5500 Hz 대비 약 15–45% 줄었습니다.
+
+기존 방식을 원하면 **Fixed 5500 Hz**, **Fixed 5000 Hz**, **Custom**을 선택합니다. 이 경우 2단계를 건너뛰고 모든
+화자에 그 ceiling을 적용합니다.
 
 | 옵션 | 동작 |
 |------|------|
-| `Auto per speaker` (기본) | 파일명 첫 토큰을 화자 ID로 묶고, 4000–8000 Hz를 100 Hz 간격으로 훑은 뒤 20 Hz 간격으로 미세 탐색하여 기준값이 최소가 되는 ceiling을 사용 |
-| `F3–F4 stability` (기준 기본값) | 모든 모음 토큰에 걸친 20·log₁₀F3 + 20·log₁₀F4 분산 최소화 (Feinberg 2019, OSF 사전등록 PDWCB). 모음당 1토큰만 있어도 동작 |
-| `Within-vowel F1–F2 stability` | 같은 모음 반복 토큰 내 20·log₁₀F1 + 20·log₁₀F2 분산(pooled) 최소화 (Escudero et al. 2009). 반복 토큰이 없으면 F3–F4 기준으로 자동 대체 |
-| `Fixed 5500 / 5000 / Custom` | 기존 방식과 동일한 고정 ceiling |
+| `Auto per speaker` (기본) | 파일명 첫 토큰을 화자 ID로 묶고, 4000–8000 Hz를 100 Hz 간격으로 훑은 뒤 20 Hz 간격으로 미세 탐색하여 점수가 최소인 ceiling 사용 |
+| `F3–F4 stability` (기준 기본값) | 전체 모음 토큰의 20·log₁₀F3, 20·log₁₀F4 분산 합 최소화. 모음당 1토큰만 있어도 동작 |
+| `Within-vowel F1–F2 stability` | 같은 모음 반복 토큰 내 20·log₁₀F1, 20·log₁₀F2 분산(pooled) 합 최소화. 반복 토큰이 없으면 F3–F4 기준으로 자동 대체 |
+| `Both combined` | 두 점수의 합 |
+| `Fixed 5500 / 5000 / Custom` | 고정 ceiling (기존 방식) |
 
-추출 결과 CSV에는 F1–F4와 사용된 ceiling(`formant_ceiling` 열)이 포함되며, 화면 요약에 화자별 ceiling이 표시됩니다.
-구현: `utils/formant_ceiling.py`.
+**3단계 · 모음 토큰 측정**
+
+1. **Praat 분석**: *To Formant (burg)*, 선택된 ceiling, 포먼트 5개, 25 ms 가우시안 창, 10 ms 시간 간격,
+   50 Hz부터 pre-emphasis. Burg 방법은 Praat의 표준 LPC 포먼트 추적기입니다.
+2. **모음의 어느 지점인가**: 구간의 **가운데 25%**(길이의 37.5%–62.5%)를 씁니다. 모음의 양 끝은 인접 자음의
+   영향(coarticulation)을 받고, 중앙이 모음 목표치에 가장 가깝습니다. 20 ms보다 짧은 구간은 중점 한 곳만 측정합니다.
+3. **5점 평균**: 그 구간 안의 등간격 5개 시점에서 F1, F2, F3, F4를 읽어(Praat 프레임 사이는 선형 보간) 평균합니다.
+   단일 프레임의 추적 튐 현상이 완화됩니다.
+4. **범위 검사**: F1과 F2가 모두 100–4000 Hz 안에 있는 토큰만 남깁니다.
+
+**4단계 · 정리와 내보내기**
+
+1. **레이블 정규화**: ARPABET·로마자 레이블을 표시용 IPA로 변환하고(AH → ʌ, eo → ʌ …), 원래 레이블은
+   `vowel_raw` 열에 보존합니다.
+2. **이상치 제거**: 모음 범주별로 F1 또는 F2가 평균에서 ±3 표준편차를 벗어난 토큰은 그래프 작성 전에 제거합니다.
+3. **CSV 다운로드**: 모음 토큰당 한 행이며 열은 `vowel, vowel_raw, F1, F2, F3, F4, time, duration, file, speaker,
+   native_language, formant_ceiling`입니다(주파수는 Hz, 소수 첫째 자리 반올림). Bark/ERB/Mel 변환을 선택하면
+   그래프의 F1/F2에만 적용됩니다.
+
+**결과**: 모음 구간마다 그 화자의 목소리에 맞춘 ceiling으로 측정한 F1/F2/F3/F4 한 세트가 나옵니다. Auto 모드는
+화자당 몇 초가 추가로 걸립니다. 구현: `utils/formant_ceiling.py`, `utils/data_processor.py`.
 
 참고문헌
 - Escudero, P., Boersma, P., Rauber, A. S., & Bion, R. A. H. (2009). A cross-dialect acoustic description of vowels: Brazilian and European Portuguese. *JASA*, 126(3), 1379–1393.
-- Feinberg, D. R. (2019). Automated Formant Ceiling Settings. OSF Preregistration. https://doi.org/10.17605/OSF.IO/PDWCB
+- Feinberg, D. R. (2019). Automated Formant Ceiling Settings. OSF Registries. https://doi.org/10.17605/OSF.IO/PDWCB
+- Barreda, S. (2021). Fast Track: fast (nearly) automatic formant-tracking using Praat. *Linguistics Vanguard*, 7(1).
+- Boersma, P., & Weenink, D. Praat manual, "Sound: To Formant (burg)...". https://www.fon.hum.uva.nl/praat/manual/Sound__To_Formant__burg____.html
 
 ### 시각화 유형 선택
 
