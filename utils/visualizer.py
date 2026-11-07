@@ -349,24 +349,22 @@ def create_static_vowel_space(df, scale='Hz'):
         return None
 
 
-def _trajectory_marker(n_points, max_arrows=12):
+def _trajectory_marker(n_points):
     """
     Marker settings that show the direction of a trajectory.
 
-    The first point is an open circle (start). Along the path, arrowhead
-    markers are oriented from the previous point (Plotly ``angleref=
-    'previous'``), so they point in the direction of travel; the last point
-    always carries an arrowhead. For long trajectories only every k-th point
-    gets an arrowhead so the plot stays readable, the rest are small dots.
+    The first point is an open circle (start). An arrowhead on the second
+    point shows the departure direction and an arrowhead on the last point
+    marks the end; arrowheads are oriented from the previous point (Plotly
+    ``angleref='previous'``). All other points are small dots.
     """
     n = max(int(n_points), 1)
-    step = max(1, int(np.ceil((n - 1) / max_arrows)))
     symbols, sizes = [], []
     for i in range(n):
         if i == 0:
             symbols.append('circle-open')
             sizes.append(10)
-        elif i == n - 1 or i % step == 0:
+        elif i == n - 1 or (i == 1 and n > 2):
             symbols.append('arrow')
             sizes.append(14)
         else:
