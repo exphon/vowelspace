@@ -607,9 +607,10 @@ def _trajectory_groups(df, time_col):
 
 
 FORMANT_DASH = {'F1': 'solid', 'F2': 'dash', 'F3': 'dot'}
-# Fixed frequency axis for the normalized-time plot (Hz; converted for other scales)
+# Frequency axis for the normalized-time plot: fixed 0-3000 Hz (converted for
+# other scales); when F3 is present the top is raised to max(F3) x 1.2
 TRAJECTORY_Y_MAX_HZ = 3000.0
-TRAJECTORY_Y_MAX_HZ_WITH_F3 = 4000.0
+TRAJECTORY_F3_HEADROOM = 1.2
 
 
 def _hz_to_scale(hz, scale):
@@ -736,10 +737,15 @@ def create_formant_time_trajectory(df, scale='Hz'):
                      range=[-0.02, 1.10], tickvals=[0, 0.25, 0.5, 0.75, 1.0],
                      ticktext=['0 (onset)', '0.25', '0.5', '0.75', '1 (offset)'],
                      showgrid=True, gridcolor='lightgray')
-    # Fixed frequency axis so plots are comparable regardless of the vowels present
-    y_max_hz = TRAJECTORY_Y_MAX_HZ_WITH_F3 if 'F3' in formants else TRAJECTORY_Y_MAX_HZ
+    # Fixed frequency axis so plots are comparable regardless of the vowels present;
+    # with F3 the top is max(F3) + 20% so F3 lines and their labels stay visible
+    y_max = _hz_to_scale(TRAJECTORY_Y_MAX_HZ, scale)
+    if 'F3' in formants:
+        f3_max = pd.to_numeric(df['F3'], errors='coerce').max()
+        if np.isfinite(f3_max):
+            y_max = max(y_max, float(f3_max) * TRAJECTORY_F3_HEADROOM)
     fig.update_yaxes(title_text=f'Frequency ({scale})', showgrid=True, gridcolor='lightgray',
-                     range=[0, _hz_to_scale(y_max_hz, scale)], autorange=False, fixedrange=False)
+                     range=[0, y_max], autorange=False, fixedrange=False)
 
     style_text = ', '.join(f"{f} {FORMANT_DASH.get(f, 'solid')}" for f in formants)
     fig.update_layout(
