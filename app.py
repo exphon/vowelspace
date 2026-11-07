@@ -387,7 +387,8 @@ def upload_file():
         
         # Convert formant scale if needed
         if formant_scale != 'Hz':
-            data = convert_formants(data, from_scale='Hz', to_scale=formant_scale)
+            data = convert_formants(data, from_scale='Hz', to_scale=formant_scale,
+                                    formant_cols=[c for c in ('F1', 'F2', 'F3', 'F4') if c in data.columns])
         
         # Create visualization with scale label
         scale_label = get_scale_label(formant_scale)
@@ -561,7 +562,8 @@ def analyze_data():
         
         # Convert formant scale if needed
         if formant_scale != 'Hz':
-            data = convert_formants(data, from_scale='Hz', to_scale=formant_scale)
+            data = convert_formants(data, from_scale='Hz', to_scale=formant_scale,
+                                    formant_cols=[c for c in ('F1', 'F2', 'F3', 'F4') if c in data.columns])
         
         # Perform comprehensive analysis
         analysis_results = perform_comprehensive_analysis(data)
