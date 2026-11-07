@@ -606,23 +606,24 @@ def _trajectory_groups(df, time_col):
     return groups
 
 
+FORMANT_DASH = {'F1': 'solid', 'F2': 'dash', 'F3': 'dot'}
+
+
 def create_formant_time_trajectory(df, scale='Hz'):
     """
-    Formant trajectories against normalized time.
+    Formant trajectories against normalized time, all formants on one y axis.
 
-    One panel per formant (F1, F2 and F3 when present). The x axis is the
-    time within each vowel production rescaled to 0-1, so productions of
-    different duration can be compared. Each production is drawn as a thin
-    line coloured by vowel; when a vowel has two or more productions, their
-    mean trajectory (interpolated on a common 21-point grid) is drawn as a
-    bold line.
+    The x axis is the time within each vowel production rescaled to 0-1, so
+    productions of different duration can be compared. F1, F2 (and F3 when
+    present) share the frequency axis: colour = vowel, line style = formant
+    (F1 solid, F2 dashed, F3 dotted). Each production is drawn as a thin
+    line; when a vowel has two or more productions, their mean trajectory
+    (interpolated on a common 21-point grid) is drawn as a bold line.
 
     Args:
         df: DataFrame with F1/F2 (optionally F3), 'time' and grouping columns
         scale: Frequency scale label ('Hz', 'Bark', 'ERB', 'Mel')
     """
-    from plotly.subplots import make_subplots
-
     if df is None or df.empty:
         return None
 
@@ -647,16 +648,13 @@ def create_formant_time_trajectory(df, scale='Hz'):
     vowels = sorted({v for v, _, _ in groups})
     colors = {v: CUSTOM_COLORS[i % len(CUSTOM_COLORS)] for i, v in enumerate(vowels)}
 
-    fig = make_subplots(
-        rows=len(formants), cols=1, shared_xaxes=True,
-        vertical_spacing=0.06,
-        subplot_titles=[f'{f} ({scale})' for f in formants],
-    )
+    fig = go.Figure()
 
     for vowel in vowels:
         v_groups = [(label, g) for v, label, g in groups if v == vowel]
         many = len(v_groups) > 1
-        for row, formant in enumerate(formants, start=1):
+        for formant in formants:
+            dash = FORMANT_DASH.get(formant, 'solid')
             curves = []
             for label, g in v_groups:
                 y = pd.to_numeric(g[formant], errors='coerce').to_numpy()
@@ -665,19 +663,20 @@ def create_formant_time_trajectory(df, scale='Hz'):
                 if ok.sum() < 2:
                     continue
                 hover = [
-                    f"<b>{vowel}</b>" + (f"<br>{label}" if label else "") +
+                    f"<b>{vowel} {formant}</b>" + (f"<br>{label}" if label else "") +
                     f"<br>{formant}: {yy:.0f} {scale}<br>normalized time: {xx:.2f}<br>{time_col}: {tt:.3f}"
                     for xx, yy, tt in zip(x[ok], y[ok], g[time_col].to_numpy()[ok])
                 ]
                 fig.add_trace(go.Scatter(
                     x=x[ok], y=y[ok], mode='lines+markers',
                     name=vowel, legendgroup=vowel,
-                    showlegend=(row == 1 and not many),
-                    line=dict(color=colors[vowel], width=1.2 if many else 2.5),
+                    legendgrouptitle=dict(text='<b>Vowels</b>') if (formant == formants[0]) else None,
+                    showlegend=(formant == formants[0] and not many and label == v_groups[0][0]),
+                    line=dict(color=colors[vowel], width=1.2 if many else 2.5, dash=dash),
                     marker=dict(size=4 if many else 6),
                     opacity=0.35 if many else 1.0,
                     text=hover, hoverinfo='text',
-                ), row=row, col=1)
+                ))
                 curves.append(np.interp(MEAN_TRAJECTORY_GRID, x[ok], y[ok]))
 
             if many and len(curves) >= 2:
@@ -685,30 +684,41 @@ def create_formant_time_trajectory(df, scale='Hz'):
                 fig.add_trace(go.Scatter(
                     x=MEAN_TRAJECTORY_GRID, y=mean_curve, mode='lines',
                     name=f'{vowel} (mean of {len(curves)})', legendgroup=vowel,
-                    showlegend=(row == 1),
-                    line=dict(color=colors[vowel], width=3.5),
-                    hovertemplate=f'<b>{vowel}</b> mean<br>{formant}: %{{y:.0f}} {scale}<br>normalized time: %{{x:.2f}}<extra></extra>',
-                ), row=row, col=1)
+                    legendgrouptitle=dict(text='<b>Vowels</b>') if formant == formants[0] else None,
+                    showlegend=(formant == formants[0]),
+                    line=dict(color=colors[vowel], width=3.5, dash=dash),
+                    hovertemplate=f'<b>{vowel} {formant}</b> mean<br>{formant}: %{{y:.0f}} {scale}<br>normalized time: %{{x:.2f}}<extra></extra>',
+                ))
 
-    for row, formant in enumerate(formants, start=1):
-        fig.update_yaxes(title_text=f'{formant} ({scale})', showgrid=True, gridcolor='lightgray', row=row, col=1)
-    fig.update_xaxes(range=[-0.02, 1.02], tickvals=[0, 0.25, 0.5, 0.75, 1.0],
+    # Legend key for the line styles (one grey dummy trace per formant)
+    for formant in formants:
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None], mode='lines',
+            name=formant, legendgroup='formant_style',
+            legendgrouptitle=dict(text='<b>Line style</b>'),
+            line=dict(color='gray', width=2.5, dash=FORMANT_DASH.get(formant, 'solid')),
+            hoverinfo='skip', showlegend=True,
+        ))
+
+    fig.update_xaxes(title_text='Normalized time within vowel',
+                     range=[-0.02, 1.02], tickvals=[0, 0.25, 0.5, 0.75, 1.0],
                      ticktext=['0 (onset)', '0.25', '0.5', '0.75', '1 (offset)'],
                      showgrid=True, gridcolor='lightgray')
-    fig.update_xaxes(title_text='Normalized time within vowel', row=len(formants), col=1)
+    fig.update_yaxes(title_text=f'Frequency ({scale})', showgrid=True, gridcolor='lightgray', rangemode='tozero')
 
+    style_text = ', '.join(f"{f} {FORMANT_DASH.get(f, 'solid')}" for f in formants)
     fig.update_layout(
-        title=f'Formant Trajectories over Normalized Time - {scale}<br><sub>Thin lines = individual productions, bold = mean per vowel • Click legend items to show/hide</sub>',
+        title=f'Formant Trajectories over Normalized Time - {scale}<br><sub>Colour = vowel • Line style = formant ({style_text}) • Thin = individual productions, bold = mean • Click legend items to show/hide</sub>',
         width=1000,
-        height=max(500, 260 * len(formants) + 140),
+        height=650,
         plot_bgcolor='white',
         hovermode='closest',
         font=dict(size=12),
         legend=dict(
-            title=dict(text='<b>Vowels</b><br><sub>(click to toggle)</sub>', font=dict(size=14)),
+            title=dict(text='<sub>(click to toggle)</sub>', font=dict(size=12)),
             orientation='v', yanchor='top', y=1, xanchor='left', x=1.02,
             bgcolor='rgba(255, 255, 255, 0.9)', bordercolor='gray', borderwidth=1,
-            itemclick='toggle', itemdoubleclick='toggleothers',
+            itemclick='toggle', itemdoubleclick='toggleothers', tracegroupgap=10,
         ),
     )
     return json.loads(fig.to_json())
