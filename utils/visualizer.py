@@ -607,6 +607,27 @@ def _trajectory_groups(df, time_col):
 
 
 FORMANT_DASH = {'F1': 'solid', 'F2': 'dash', 'F3': 'dot'}
+# Fixed frequency axis for the normalized-time plot (Hz; converted for other scales)
+TRAJECTORY_Y_MAX_HZ = 3000.0
+TRAJECTORY_Y_MAX_HZ_WITH_F3 = 4000.0
+
+
+def _hz_to_scale(hz, scale):
+    """Convert a frequency in Hz to the given display scale."""
+    from .formant_scales import hz_to_bark, hz_to_erb, hz_to_mel
+    s = str(scale).lower()
+    if s.startswith('bark'):
+        return float(hz_to_bark(hz))
+    if s.startswith('erb'):
+        return float(hz_to_erb(hz))
+    if s.startswith('mel'):
+        return float(hz_to_mel(hz))
+    return float(hz)
+
+
+def _end_label(n_points, label):
+    """Text array that shows ``label`` at the last point only."""
+    return [''] * (n_points - 1) + [label]
 
 
 def create_formant_time_trajectory(df, scale='Hz'):
@@ -667,27 +688,38 @@ def create_formant_time_trajectory(df, scale='Hz'):
                     f"<br>{formant}: {yy:.0f} {scale}<br>normalized time: {xx:.2f}<br>{time_col}: {tt:.3f}"
                     for xx, yy, tt in zip(x[ok], y[ok], g[time_col].to_numpy()[ok])
                 ]
+                # Single production: label the formant name at the end of the line
+                single = not many
                 fig.add_trace(go.Scatter(
-                    x=x[ok], y=y[ok], mode='lines+markers',
+                    x=x[ok], y=y[ok],
+                    mode='lines+markers+text' if single else 'lines+markers',
                     name=vowel, legendgroup=vowel,
                     legendgrouptitle=dict(text='<b>Vowels</b>') if (formant == formants[0]) else None,
-                    showlegend=(formant == formants[0] and not many and label == v_groups[0][0]),
+                    showlegend=(formant == formants[0] and single and label == v_groups[0][0]),
                     line=dict(color=colors[vowel], width=1.2 if many else 2.5, dash=dash),
                     marker=dict(size=4 if many else 6),
                     opacity=0.35 if many else 1.0,
-                    text=hover, hoverinfo='text',
+                    text=_end_label(int(ok.sum()), formant) if single else hover,
+                    textposition='middle right',
+                    textfont=dict(color=colors[vowel], size=12),
+                    hovertext=hover, hoverinfo='text',
+                    cliponaxis=False,
                 ))
                 curves.append(np.interp(MEAN_TRAJECTORY_GRID, x[ok], y[ok]))
 
             if many and len(curves) >= 2:
                 mean_curve = np.mean(np.vstack(curves), axis=0)
                 fig.add_trace(go.Scatter(
-                    x=MEAN_TRAJECTORY_GRID, y=mean_curve, mode='lines',
+                    x=MEAN_TRAJECTORY_GRID, y=mean_curve, mode='lines+text',
                     name=f'{vowel} (mean of {len(curves)})', legendgroup=vowel,
                     legendgrouptitle=dict(text='<b>Vowels</b>') if formant == formants[0] else None,
                     showlegend=(formant == formants[0]),
                     line=dict(color=colors[vowel], width=3.5, dash=dash),
+                    text=_end_label(len(MEAN_TRAJECTORY_GRID), formant),
+                    textposition='middle right',
+                    textfont=dict(color=colors[vowel], size=12),
                     hovertemplate=f'<b>{vowel} {formant}</b> mean<br>{formant}: %{{y:.0f}} {scale}<br>normalized time: %{{x:.2f}}<extra></extra>',
+                    cliponaxis=False,
                 ))
 
     # Legend key for the line styles (one grey dummy trace per formant)
@@ -701,10 +733,13 @@ def create_formant_time_trajectory(df, scale='Hz'):
         ))
 
     fig.update_xaxes(title_text='Normalized time within vowel',
-                     range=[-0.02, 1.02], tickvals=[0, 0.25, 0.5, 0.75, 1.0],
+                     range=[-0.02, 1.10], tickvals=[0, 0.25, 0.5, 0.75, 1.0],
                      ticktext=['0 (onset)', '0.25', '0.5', '0.75', '1 (offset)'],
                      showgrid=True, gridcolor='lightgray')
-    fig.update_yaxes(title_text=f'Frequency ({scale})', showgrid=True, gridcolor='lightgray', rangemode='tozero')
+    # Fixed frequency axis so plots are comparable regardless of the vowels present
+    y_max_hz = TRAJECTORY_Y_MAX_HZ_WITH_F3 if 'F3' in formants else TRAJECTORY_Y_MAX_HZ
+    fig.update_yaxes(title_text=f'Frequency ({scale})', showgrid=True, gridcolor='lightgray',
+                     range=[0, _hz_to_scale(y_max_hz, scale)], autorange=False, fixedrange=False)
 
     style_text = ', '.join(f"{f} {FORMANT_DASH.get(f, 'solid')}" for f in formants)
     fig.update_layout(
