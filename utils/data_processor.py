@@ -22,13 +22,91 @@ ARPABET_VOWELS = {
     'AA','AE','AH','AO','AW','AY','EH','ER','EY','IH','IY','OW','OY','UH','UW','UX'
 }
 
+ARPABET_TO_IPA = {
+    'AA': 'ɑ',
+    'AE': 'æ',
+    'AH': 'ʌ',
+    'AO': 'ɔ',
+    'AW': 'aʊ',
+    'AY': 'aɪ',
+    'EH': 'ɛ',
+    'ER': 'ɝ',
+    'EY': 'eɪ',
+    'IH': 'ɪ',
+    'IY': 'i',
+    'OW': 'oʊ',
+    'OY': 'ɔɪ',
+    'UH': 'ʊ',
+    'UW': 'u',
+    'UX': 'ʉ',
+}
+
 # IPA vowel characters set (lowercase) for quick membership tests
-IPA_VOWEL_CHARS = set(
-    list('aeiouy') + list('ɪʊəɚɝɜɞʌɔɑæɒɛøœɶɨɯʏɐɤɵ') + list('iu y')
-)
+IPA_VOWEL_CHARS = set('aeiouɪʊəɚɝɜɞʌɔɑæɒɛøœɶɨɯʏɐɤɵ') | {'j', 'w', 'y'}
+
+# Korean romanized vowel tokens mapped to IPA approximations
+KOREAN_VOWEL_TO_IPA = {
+    'a': 'a',
+    'ae': 'ɛ',
+    'e': 'e',
+    'eo': 'ʌ',
+    'eu': 'ɯ',
+    'i': 'i',
+    'o': 'o',
+    'oe': 'we',
+    'u': 'u',
+    'wa': 'wa',
+    'wae': 'wɛ',
+    'we': 'we',
+    'weo': 'wʌ',
+    'wi': 'wi',
+    'ya': 'ja',
+    'yae': 'jɛ',
+    'ye': 'je',
+    'yeo': 'jʌ',
+    'yi': 'ɯi',
+    'yo': 'jo',
+    'yu': 'ju',
+}
+
+CORE_VOWELS_ENGLISH_IPA = {'ɑ', 'eɪ', 'i', 'oʊ', 'u'}
+CORE_VOWELS_KOREAN_IPA = {'a', 'e', 'i', 'o', 'u'}
+CORE_VOWELS_IPA = CORE_VOWELS_ENGLISH_IPA | CORE_VOWELS_KOREAN_IPA
+CORE_VOWELS_IPA_NORMALIZED = {v.lower() for v in CORE_VOWELS_IPA}
+
+_NUMERIC_SUFFIX_RE = re.compile(r'\d+$')
+
+
+def normalize_vowel_label(label):
+    if label is None:
+        return ''
+    if isinstance(label, float) and np.isnan(label):
+        return ''
+    s = str(label).strip()
+    if not s or s.lower() == 'nan':
+        return ''
+    return _NUMERIC_SUFFIX_RE.sub('', s)
 
 def _strip_diacritics(s: str) -> str:
     return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+
+
+def convert_to_ipa_label(label):
+    normalized = normalize_vowel_label(label)
+    if not normalized:
+        return normalized
+    mapped = ARPABET_TO_IPA.get(normalized.upper())
+    if mapped:
+        return mapped
+    korean_mapped = KOREAN_VOWEL_TO_IPA.get(normalized.lower())
+    return korean_mapped if korean_mapped else normalized
+
+
+def is_core_vowel_label(label: str) -> bool:
+    ipa_label = convert_to_ipa_label(label)
+    if not ipa_label:
+        return False
+    return ipa_label.strip().lower() in CORE_VOWELS_IPA_NORMALIZED
 
 def is_vowel_label(label: str) -> bool:
     """Return True if a label looks like a vowel phone (ARPABET or IPA).
@@ -38,9 +116,7 @@ def is_vowel_label(label: str) -> bool:
     - IPA with length marks (:, ː) and stress marks (ˈ, ˌ)
     - Removes diacritics before checking
     """
-    if not label:
-        return False
-    s = str(label).strip()
+    s = normalize_vowel_label(label)
     if not s:
         return False
     # Remove common prosodic marks and length marks
@@ -48,7 +124,7 @@ def is_vowel_label(label: str) -> bool:
     s = _strip_diacritics(s)
 
     # Check ARPABET (uppercase, remove digits)
-    arp = re.sub(r'\d', '', s.upper())
+    arp = s.upper()
     if arp in ARPABET_VOWELS:
         return True
 
@@ -134,6 +210,10 @@ def process_csv_xlsx(filepath, auto_detect=True):
         # Ensure vowel column exists
         if 'vowel' not in df.columns:
             df['vowel'] = 'unknown'
+        df['vowel'] = df['vowel'].apply(normalize_vowel_label)
+        df['vowel_raw'] = df['vowel']
+        df['vowel'] = df['vowel'].replace('', 'unknown')
+        df['vowel'] = df['vowel'].apply(convert_to_ipa_label)
         
         if df.empty:
             raise ValueError("유효한 데이터가 없습니다. F1과 F2 값이 100-4000 Hz 범위에 있는지 확인하세요.")
@@ -247,7 +327,9 @@ def process_wav_textgrid(wav_files, textgrid_files=None):
             
             # Count vowels
             for item in file_data:
-                vowel = item.get('vowel', 'unknown')
+                vowel = item.get('vowel')
+                if not vowel:
+                    vowel = convert_to_ipa_label(item.get('vowel_raw', 'unknown'))
                 metadata['vowel_counts'][vowel] = metadata['vowel_counts'].get(vowel, 0) + 1
             
             all_data.extend(file_data)
@@ -265,8 +347,14 @@ def process_wav_textgrid(wav_files, textgrid_files=None):
     df = pd.DataFrame(all_data)
     
     # Keep only vowel-labeled rows
-    if 'vowel' in df.columns:
+    if 'vowel_raw' in df.columns:
+        df['vowel_raw'] = df['vowel_raw'].apply(normalize_vowel_label)
+        df = df[df['vowel_raw'].apply(is_vowel_label)]
+        df['vowel'] = df['vowel_raw'].apply(convert_to_ipa_label)
+    elif 'vowel' in df.columns:
+        df['vowel'] = df['vowel'].apply(normalize_vowel_label)
         df = df[df['vowel'].apply(is_vowel_label)]
+        df['vowel'] = df['vowel'].apply(convert_to_ipa_label)
     
     # Ensure required columns exist
     if 'speaker' not in df.columns:
@@ -372,13 +460,16 @@ def extract_formants_from_textgrid(sound, formant, textgrid, file_metadata, base
                                 f2_values.append(f2)
                     
                     # Use average values if we have valid measurements
-                    if f1_values and f2_values and is_vowel_label(label):
+                    clean_label = normalize_vowel_label(label)
+                    if f1_values and f2_values and is_vowel_label(clean_label):
                         f1_avg = np.mean(f1_values)
                         f2_avg = np.mean(f2_values)
                         mid_time = (mid_start + mid_end) / 2
+                        ipa_label = convert_to_ipa_label(clean_label)
                         
                         data_point = {
-                            'vowel': label.strip(),
+                            'vowel': ipa_label,
+                            'vowel_raw': clean_label,
                             'F1': round(f1_avg, 1),
                             'F2': round(f2_avg, 1),
                             'time': mid_time,
@@ -399,9 +490,12 @@ def extract_formants_from_textgrid(sound, formant, textgrid, file_metadata, base
                     f2 = call(formant, "Get value at time", 2, time_point, "hertz", "linear")
                     
                     if f1 and f2 and not (np.isnan(f1) or np.isnan(f2)):
-                        if 100 <= f1 <= 4000 and 100 <= f2 <= 4000 and is_vowel_label(label):
+                        clean_label = normalize_vowel_label(label)
+                        if 100 <= f1 <= 4000 and 100 <= f2 <= 4000 and is_vowel_label(clean_label):
+                            ipa_label = convert_to_ipa_label(clean_label)
                             data_point = {
-                                'vowel': label.strip(),
+                                'vowel': ipa_label,
+                                'vowel_raw': clean_label,
                                 'F1': round(f1, 1),
                                 'F2': round(f2, 1),
                                 'time': time_point,
@@ -438,6 +532,7 @@ def extract_formants_regular(formant, duration, file_metadata, basename):
             if 100 <= f1 <= 4000 and 100 <= f2 <= 4000:
                 data_point = {
                     'vowel': 'unlabeled',
+                    'vowel_raw': 'unlabeled',
                     'F1': round(f1, 1),
                     'F2': round(f2, 1),
                     'time': time_point,

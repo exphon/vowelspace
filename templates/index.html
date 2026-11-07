@@ -48,6 +48,14 @@
                     </div>
 
                     <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="limitBasicVowels" name="limit_basic_vowels">
+                            Show only vowels a, e, i, o, u
+                        </label>
+                        <p class="help-text">Filter visualizations to the five basic vowels (case-insensitive).</p>
+                    </div>
+
+                    <div class="form-group">
                         <label for="fileInput">Select File:</label>
                         <div class="custom-file-upload">
                             <input type="file" id="fileInput" name="files" multiple accept=".csv,.txt,.xlsx,.xls,.wav,.TextGrid">
@@ -203,6 +211,7 @@ a,700,1200,1.5</pre>
         const resetBtn = document.getElementById('resetBtn');
         const analyzeBtn = document.getElementById('analyzeBtn');
         const analysisSection = document.getElementById('analysisSection');
+        const limitBasicVowels = document.getElementById('limitBasicVowels');
 
         let currentPlot = null;
         let currentFiles = null;
@@ -260,6 +269,7 @@ a,700,1200,1.5</pre>
             }
             formData.append('viz_type', document.getElementById('vizType').value);
             formData.append('formant_scale', document.getElementById('formantScale').value);
+            formData.append('limit_basic_vowels', limitBasicVowels.checked ? 'true' : 'false');
             
             // Add ellipse options if ellipse type is selected
             if (document.getElementById('vizType').value === 'ellipse') {
@@ -379,6 +389,7 @@ a,700,1200,1.5</pre>
             
             // Add formant scale
             formData.append('formant_scale', document.getElementById('formantScale').value);
+            formData.append('limit_basic_vowels', limitBasicVowels.checked ? 'true' : 'false');
 
             showLoading(true);
             hideError();
@@ -447,6 +458,15 @@ a,700,1200,1.5</pre>
                     }
                     summaryHTML += '</ul></li>';
                 }
+
+                if (summary.filters && summary.filters.basic_vowels_only) {
+                    const removed = typeof summary.filters.removed_rows === 'number' ? summary.filters.removed_rows : 0;
+                    const removalText = removed > 0 ? ` (removed ${removed} rows)` : '';
+                    const sets = summary.filters.core_vowel_sets || {};
+                    const englishList = Array.isArray(sets.english_ipa) ? sets.english_ipa.join(', ') : 'ɑ, eɪ, i, oʊ, u';
+                    const koreanList = Array.isArray(sets.korean_ipa) ? sets.korean_ipa.join(', ') : 'a, e, i, o, u';
+                    summaryHTML += `<li><strong>Filters:</strong> Core vowels only (IPA: ${englishList}; Korean IPA: ${koreanList})${removalText}</li>`;
+                }
                 
                 if (summary.vowels && summary.vowels.length > 0) {
                     summaryHTML += `<li><strong>Vowel Types:</strong> ${summary.vowels.join(', ')}</li>`;
@@ -480,11 +500,46 @@ a,700,1200,1.5</pre>
 
         function hideAnalysis() {
             analysisSection.style.display = 'none';
+            const filterNotice = document.getElementById('filterNotice');
+            if (filterNotice) {
+                filterNotice.remove();
+            }
         }
 
         function showAnalysis(data) {
             const analysis = data.analysis;
             const plots = data.plots;
+
+            const existingFilterNotice = document.getElementById('filterNotice');
+            if (existingFilterNotice) {
+                existingFilterNotice.remove();
+            }
+
+            if (data.filters && data.filters.basic_vowels_only) {
+                const banner = document.createElement('div');
+                banner.id = 'filterNotice';
+                const sets = data.filters.core_vowel_sets || {};
+                const englishList = Array.isArray(sets.english_ipa) ? sets.english_ipa.join(', ') : 'ɑ, eɪ, i, oʊ, u';
+                const koreanList = Array.isArray(sets.korean_ipa) ? sets.korean_ipa.join(', ') : 'a, e, i, o, u';
+                banner.textContent = `Filter applied: displaying only core vowels (IPA: ${englishList}; Korean IPA: ${koreanList}).`;
+                banner.style.backgroundColor = '#eef8ff';
+                banner.style.border = '1px solid #a3c7ff';
+                banner.style.color = '#24558f';
+                banner.style.padding = '0.75rem 1rem';
+                banner.style.borderRadius = '6px';
+                banner.style.marginBottom = '1rem';
+                const removed = typeof data.filters.removed_rows === 'number' ? data.filters.removed_rows : 0;
+                if (removed > 0) {
+                    banner.textContent += ` (${removed} rows removed by filter)`;
+                }
+
+                const header = analysisSection.querySelector('h2');
+                if (header) {
+                    header.insertAdjacentElement('afterend', banner);
+                } else {
+                    analysisSection.prepend(banner);
+                }
+            }
 
             // Descriptive statistics
             if (analysis.descriptive) {

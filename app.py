@@ -8,7 +8,14 @@ import pandas as pd
 from pathlib import Path
 from zipfile import ZipFile
 import io
-from utils.data_processor import process_csv_xlsx, process_wav_textgrid
+from utils.data_processor import (
+    process_csv_xlsx,
+    process_wav_textgrid,
+    CORE_VOWELS_ENGLISH_IPA,
+    CORE_VOWELS_KOREAN_IPA,
+    CORE_VOWELS_IPA_NORMALIZED,
+    convert_to_ipa_label,
+)
 from utils.visualizer import (
     create_static_vowel_space, 
     create_dynamic_formant_trajectory,
@@ -24,6 +31,11 @@ from utils.visualizer import (
 )
 from utils.statistics import perform_comprehensive_analysis
 from utils.formant_scales import convert_formants, get_scale_label, get_available_scales
+
+CORE_VOWEL_DISPLAY_INFO = {
+    'english_ipa': sorted(CORE_VOWELS_ENGLISH_IPA),
+    'korean_ipa': sorted(CORE_VOWELS_KOREAN_IPA),
+}
 
 
 def convert_to_json_serializable(obj):
@@ -124,6 +136,7 @@ def upload_file():
         show_ellipses = request.form.get('show_ellipses', 'false') == 'true'
         show_points = request.form.get('show_points', 'true') == 'true'
         formant_scale = request.form.get('formant_scale', 'Hz')  # Get scale option
+        limit_basic_vowels = request.form.get('limit_basic_vowels', 'false') == 'true'
         
         if not files or files[0].filename == '':
             return jsonify({'error': 'Please select a file.'}), 400
@@ -233,6 +246,24 @@ def upload_file():
                 except Exception:
                     pass
             return jsonify({'error': err_msg}), 400
+
+        basic_filter_applied = False
+        basic_filter_removed = 0
+        if limit_basic_vowels and ('vowel' in data.columns or 'vowel_raw' in data.columns):
+            before_count = len(data)
+            filtered_data = filter_basic_vowels(data)
+            basic_filter_applied = True
+            basic_filter_removed = before_count - len(filtered_data)
+            if filtered_data.empty:
+                for f in uploaded_files:
+                    if os.path.exists(f['path']):
+                        os.remove(f['path'])
+                return jsonify({'error': 'No vowels matched the selected filter (IPA: ɑ, eɪ, i, oʊ, u; Korean IPA: a, e, i, o, u).'}), 400
+            data = filtered_data
+            if basic_filter_removed:
+                print(f"Basic vowel filter applied: removed {basic_filter_removed} rows (kept {len(data)})")
+        else:
+            basic_filter_applied = False
         
         # Save extracted data as CSV for WAV/TextGrid processing
         if 'wav' in file_types:
@@ -292,7 +323,12 @@ def upload_file():
                 'rows': len(data),
                 'vowels': data['vowel'].unique().tolist() if 'vowel' in data.columns else [],
                 'columns': data.columns.tolist(),
-                'column_detection': detection_info if detection_info else None
+                'column_detection': detection_info if detection_info else None,
+                'filters': {
+                    'basic_vowels_only': basic_filter_applied,
+                    'removed_rows': basic_filter_removed,
+                    'core_vowel_sets': CORE_VOWEL_DISPLAY_INFO if basic_filter_applied else None
+                }
             }
         })
     
@@ -353,6 +389,7 @@ def analyze_data():
         
         files = request.files.getlist('files')
         formant_scale = request.form.get('formant_scale', 'Hz')  # Get scale option
+        limit_basic_vowels = request.form.get('limit_basic_vowels', 'false') == 'true'
         
         if not files or files[0].filename == '':
             return jsonify({'success': False, 'error': 'No file selected'}), 400
@@ -390,6 +427,22 @@ def analyze_data():
         
         if data is None or data.empty:
             return jsonify({'success': False, 'error': 'Failed to process data'}), 500
+
+        basic_filter_applied = False
+        basic_filter_removed = 0
+        if limit_basic_vowels and ('vowel' in data.columns or 'vowel_raw' in data.columns):
+            before_count = len(data)
+            filtered_data = filter_basic_vowels(data)
+            basic_filter_applied = True
+            basic_filter_removed = before_count - len(filtered_data)
+            if filtered_data.empty:
+                for f in uploaded_files:
+                    if os.path.exists(f['path']):
+                        os.remove(f['path'])
+                return jsonify({'success': False, 'error': 'No vowels matched the selected filter (IPA: ɑ, eɪ, i, oʊ, u; Korean IPA: a, e, i, o, u).'}), 400
+            data = filtered_data
+            if basic_filter_removed:
+                print(f"Basic vowel filter applied (analysis): removed {basic_filter_removed} rows (kept {len(data)})")
         
         # Limit speakers to 10 randomly if more than 10
         if 'speaker' in data.columns:
@@ -507,7 +560,12 @@ def analyze_data():
             'success': True,
             'analysis': analysis_results,
             'plots': plots,
-            'column_detection': detection_info
+            'column_detection': detection_info,
+            'filters': {
+                'basic_vowels_only': basic_filter_applied,
+                'removed_rows': basic_filter_removed,
+                'core_vowel_sets': CORE_VOWEL_DISPLAY_INFO if basic_filter_applied else None
+            }
         })
     
     except Exception as e:

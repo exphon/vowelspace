@@ -25,6 +25,45 @@ CUSTOM_COLORS = [
 ]
 
 
+KOREAN_DIPHTHONG_PREFIXES = ('w', 'y')
+
+
+def _is_korean_language(value):
+    lang = (value or '').strip().lower()
+    if not lang:
+        return False
+    if lang in {'ko', 'kor', 'kr', 'korean', 'south korean', 'north korean'}:
+        return True
+    if lang.startswith('ko-') or lang.startswith('korean'):
+        return True
+    return False
+
+
+def _filter_korean_diphthongs(df):
+    if df is None or df.empty or 'native_language' not in df.columns:
+        return df
+
+    languages = df['native_language'].fillna('').astype(str)
+    is_korean = languages.apply(_is_korean_language)
+    if not is_korean.any():
+        return df
+
+    if 'vowel_raw' in df.columns:
+        candidate = df['vowel_raw'].fillna('').astype(str).str.lower()
+    else:
+        candidate = df['vowel'].fillna('').astype(str).str.lower()
+
+    drop_mask = is_korean & candidate.str.startswith(KOREAN_DIPHTHONG_PREFIXES)
+
+    if 'vowel_raw' not in df.columns:
+        ipa_series = df['vowel'].fillna('').astype(str).str.lower()
+        drop_mask = drop_mask | (is_korean & ipa_series.str.startswith(('w', 'j')))
+
+    if drop_mask.any():
+        return df.loc[~drop_mask].copy()
+    return df
+
+
 def calculate_ellipse(x, y, n_std=2.0, n_points=100):
     """
     Calculate confidence ellipse for 2D data
@@ -90,6 +129,11 @@ def create_static_vowel_space(df, scale='Hz'):
         print("Error: Empty dataframe in create_static_vowel_space")
         return None
     
+    df = _filter_korean_diphthongs(df)
+
+    if df is None or df.empty:
+        return None
+
     try:
         fig = go.Figure()
         
@@ -317,6 +361,8 @@ def create_dynamic_formant_trajectory(df, scale='Hz'):
     if df.empty:
         return None
     
+    df = _filter_korean_diphthongs(df)
+
     # Check if time information is available
     if 'time' not in df.columns:
         # If no time column, create static plot with sequence numbers
@@ -574,6 +620,8 @@ def create_vowel_space_with_ellipses(df, confidence=0.95, show_points=True):
         print("Error: Empty dataframe")
         return None
     
+    df = _filter_korean_diphthongs(df)
+
     # Convert confidence to number of standard deviations
     # 95% ≈ 2 std, 99% ≈ 2.58 std
     if confidence >= 0.99:
@@ -949,6 +997,11 @@ def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True
         print("Error: Empty dataframe")
         return None
     
+    df = _filter_korean_diphthongs(df)
+
+    if df is None or df.empty:
+        return None
+
     try:
         # Convert confidence level to standard deviations
         # 95% ≈ 2 std, 99% ≈ 3 std
@@ -1162,6 +1215,8 @@ def create_pca_plot(df_pca, pca_results, scale='Hz'):
     Returns:
         JSON plot object
     """
+    df_pca = _filter_korean_diphthongs(df_pca)
+
     try:
         fig = go.Figure()
         
@@ -1282,6 +1337,8 @@ def create_lda_plot(df_lda, lda_results, group_by='vowel', scale='Hz'):
     Returns:
         JSON plot object
     """
+    df_lda = _filter_korean_diphthongs(df_lda)
+
     try:
         fig = go.Figure()
         
@@ -1359,6 +1416,11 @@ def create_boxplot(df, group_by='vowel', scale='Hz'):
     if df is None or df.empty or group_by not in df.columns:
         return None
     
+    df = _filter_korean_diphthongs(df)
+
+    if df is None or df.empty:
+        return None
+
     try:
         from plotly.subplots import make_subplots
         
@@ -1447,6 +1509,11 @@ def create_violin_plot(df, group_by='vowel', scale='Hz'):
     if df is None or df.empty or group_by not in df.columns:
         return None
     
+    df = _filter_korean_diphthongs(df)
+
+    if df is None or df.empty:
+        return None
+
     try:
         from plotly.subplots import make_subplots
         
@@ -1538,6 +1605,11 @@ def create_histogram(df, group_by='vowel', scale='Hz'):
     if df is None or df.empty:
         return None
     
+    df = _filter_korean_diphthongs(df)
+
+    if df is None or df.empty:
+        return None
+
     try:
         from plotly.subplots import make_subplots
         from scipy.stats import gaussian_kde
@@ -1693,6 +1765,8 @@ def create_scatter_matrix(df, color_by='vowel'):
     if df is None or df.empty:
         return None
     
+    df = _filter_korean_diphthongs(df)
+
     try:
         # Select relevant columns
         dimensions = ['F1', 'F2']
@@ -1751,6 +1825,8 @@ def create_mean_comparison_plot(df, group_by='vowel', scale='Hz'):
     if df is None or df.empty or group_by not in df.columns:
         return None
     
+    df = _filter_korean_diphthongs(df)
+
     try:
         from plotly.subplots import make_subplots
         
