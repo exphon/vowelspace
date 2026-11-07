@@ -6,7 +6,7 @@ import requests
 import json
 
 BASE_URL = 'http://localhost:5000'
-TEST_FILE = '/var/www/html/vowelspace/test/test_multi_speaker.csv'
+TEST_FILE = '/var/www/app/vowelspace/test/test_multi_speaker.csv'
 
 print("=== 타원 시각화 테스트 ===\n")
 

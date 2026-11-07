@@ -88,7 +88,7 @@ vowel2,450,2100
 프로젝트에는 다양한 형식의 테스트 데이터가 포함되어 있습니다:
 
 ```bash
-/var/www/html/vowelspace/test/
+/var/www/app/vowelspace/test/
   ├── test_format1.csv    # 표준 형식 (F1, F2, vowel, speaker, L1)
   ├── test_format2.csv    # 상세 형식 (f1_frequency, phone, participant)
   ├── test_format3.csv    # 학술 형식 (first_formant, phoneme, subject_id)
@@ -98,7 +98,7 @@ vowel2,450,2100
 
 테스트 방법:
 ```bash
-cd /var/www/html/vowelspace
+cd /var/www/app/vowelspace
 python3 test_column_detection.py  # 컬럼 감지 테스트
 python3 test_web_upload.py        # 웹 업로드 테스트
 ```

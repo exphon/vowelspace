@@ -102,7 +102,7 @@ def generate_varied_column_names_data():
         df_renamed = base_df.rename(columns=fmt['columns'])
         
         # 파일 저장
-        filepath = f"/var/www/html/vowelspace/test/{fmt['filename']}"
+        filepath = f"/var/www/app/vowelspace/test/{fmt['filename']}"
         df_renamed.to_csv(filepath, index=False)
         print(f"Created {filepath} with columns: {list(df_renamed.columns)}")
         saved_files.append(filepath)
@@ -114,11 +114,11 @@ if __name__ == '__main__':
     import os
     
     # 테스트 디렉토리 생성
-    os.makedirs('/var/www/html/vowelspace/test', exist_ok=True)
+    os.makedirs('/var/www/app/vowelspace/test', exist_ok=True)
     
     # 기본 테스트 데이터 생성
     print("=== Generating basic test data ===")
-    save_test_data_to_csv('/var/www/html/vowelspace/test/test_multi_speaker.csv')
+    save_test_data_to_csv('/var/www/app/vowelspace/test/test_multi_speaker.csv')
     
     print("\n=== Generating varied column format data ===")
     generate_varied_column_names_data()

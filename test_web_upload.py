@@ -21,7 +21,7 @@ def test_upload_with_auto_detection():
         print(f"파일: {filename}")
         print(f"{'='*70}")
         
-        filepath = f'/var/www/html/vowelspace/test/{filename}'
+        filepath = f'/var/www/app/vowelspace/test/{filename}'
         
         try:
             with open(filepath, 'rb') as f:

@@ -49,30 +49,66 @@
 
 ### 1. Python 환경 설정
 
-Python 3.8 이상이 필요합니다.
+Python 3.8 이상이 필요합니다. (현재 서버: Python 3.12, 가상환경 `.venv`)
 
 ```bash
-# 가상 환경 생성 (선택사항이지만 권장)
-python3 -m venv venv
-source venv/bin/activate  # Linux/Mac
-# 또는
-venv\Scripts\activate  # Windows
+cd /var/www/app/vowelspace
+python3 -m venv .venv
+source .venv/bin/activate
 ```
 
 ### 2. 의존성 패키지 설치
 
 ```bash
-cd /var/www/html/vowelspace
 pip install -r requirements.txt
 ```
 
 ### 3. 애플리케이션 실행
 
 ```bash
-python app.py
+# 백그라운드 실행 (터미널을 닫아도 유지) - 권장
+./run.sh
+
+# 중지
+./stop.sh
+
+# 또는 직접 실행 (개발용)
+.venv/bin/python app.py
 ```
 
-브라우저에서 `http://localhost:5000` 을 열면 애플리케이션을 사용할 수 있습니다.
+포트와 디버그 모드는 환경변수로 바꿀 수 있습니다 (기본: 포트 5000, 디버그 OFF).
+
+```bash
+PORT=8080 ./run.sh          # 다른 포트로 실행
+FLASK_DEBUG=1 .venv/bin/python app.py   # 디버그 모드 (개발용, 외부 공개 시 사용 금지)
+```
+
+브라우저에서 `http://localhost:5000` (외부에서는 `http://210.125.101.159:5000`) 을 열면 애플리케이션을 사용할 수 있습니다.
+
+## 🌐 서비스 배포 (https://vowelspace.tyoon.net)
+
+운영 서버에서는 `run.sh` 대신 systemd 서비스(gunicorn) + nginx 리버스 프록시로 실행합니다.
+설정 파일은 `deploy/` 폴더에 있으며, 최초 1회 아래를 실행하면 서비스 등록, 인증서 발급, nginx 설정이 모두 적용됩니다.
+
+```bash
+sudo /var/www/app/vowelspace/deploy/setup.sh
+```
+
+| 파일 | 용도 |
+|------|------|
+| `deploy/vowelspace.service` | systemd 유닛 (gunicorn, 127.0.0.1:5000, 재부팅 시 자동 시작) |
+| `deploy/nginx-vowelspace.conf` | nginx HTTPS 리버스 프록시 설정 |
+| `deploy/nginx-vowelspace-bootstrap.conf` | 인증서 발급 전 임시 HTTP 설정 (setup.sh가 자동 사용) |
+
+운영 중 관리 명령:
+
+```bash
+sudo systemctl status vowelspace     # 상태
+sudo systemctl restart vowelspace    # 코드 수정 후 재시작
+sudo journalctl -u vowelspace -f     # 로그
+```
+
+> 서비스가 등록된 뒤에는 `./run.sh`가 자동으로 `sudo systemctl restart vowelspace`를 실행하고, `./stop.sh`는 `sudo systemctl stop vowelspace`를 실행합니다. 서비스가 없을 때만 nohup 방식으로 직접 띄웁니다.
 
 ## 🤖 자동 컬럼 감지
 

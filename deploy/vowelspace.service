@@ -1,0 +1,23 @@
+[Unit]
+Description=Vowel Space Visualizer (Flask + gunicorn) - https://vowelspace.tyoon.net
+After=network.target
+
+[Service]
+Type=simple
+User=tyoon
+Group=tyoon
+WorkingDirectory=/var/www/app/vowelspace
+Environment=PYTHONUNBUFFERED=1
+# nginx가 앞단에 있으므로 localhost에만 바인딩
+ExecStart=/var/www/app/vowelspace/.venv/bin/gunicorn \
+    --bind 127.0.0.1:5000 \
+    --workers 2 \
+    --timeout 300 \
+    --access-logfile - \
+    --error-logfile - \
+    app:app
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -30,9 +30,9 @@ echo ""
 echo "3. 파일 업로드 테스트..."
 
 TEST_FILES=(
-    "/var/www/html/vowelspace/test/test_format1.csv"
-    "/var/www/html/vowelspace/test/test_format2.csv"
-    "/var/www/html/vowelspace/test/test_multi_speaker.csv"
+    "/var/www/app/vowelspace/test/test_format1.csv"
+    "/var/www/app/vowelspace/test/test_format2.csv"
+    "/var/www/app/vowelspace/test/test_multi_speaker.csv"
 )
 
 for FILE in "${TEST_FILES[@]}"; do
@@ -60,7 +60,7 @@ echo "=== 테스트 완료 ==="
 echo ""
 echo "웹 브라우저에서 다음 주소로 접속하세요:"
 echo "  - 내부: http://localhost:5000"
-echo "  - 외부: http://210.125.93.241:5000"
+echo "  - 외부: http://$(hostname -I | awk '{print $1}'):5000"
 echo ""
 echo "💡 외부 접속이 안 되면 방화벽 설정을 확인하세요:"
 echo "   sudo ufw allow 5000/tcp"

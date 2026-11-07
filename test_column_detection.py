@@ -56,11 +56,11 @@ def test_column_detection(filepath):
 
 if __name__ == '__main__':
     test_files = [
-        '/var/www/html/vowelspace/test/test_format1.csv',
-        '/var/www/html/vowelspace/test/test_format2.csv',
-        '/var/www/html/vowelspace/test/test_format3.csv',
-        '/var/www/html/vowelspace/test/test_format4.csv',
-        '/var/www/html/vowelspace/test/test_multi_speaker.csv',
+        '/var/www/app/vowelspace/test/test_format1.csv',
+        '/var/www/app/vowelspace/test/test_format2.csv',
+        '/var/www/app/vowelspace/test/test_format3.csv',
+        '/var/www/app/vowelspace/test/test_format4.csv',
+        '/var/www/app/vowelspace/test/test_multi_speaker.csv',
     ]
     
     print("자동 컬럼 감지 테스트 시작")

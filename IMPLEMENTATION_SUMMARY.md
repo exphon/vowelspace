@@ -137,7 +137,7 @@ vowelspace/
 ### 웹 인터페이스
 ```bash
 # 1. 서버 실행 (이미 실행 중)
-cd /var/www/html/vowelspace
+cd /var/www/app/vowelspace
 python3 app.py
 
 # 2. 브라우저 접속

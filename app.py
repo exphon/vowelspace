@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, jsonify, send_file
 import os
 from werkzeug.utils import secure_filename
+from werkzeug.middleware.proxy_fix import ProxyFix
 import json
 import traceback
 import numpy as np
@@ -106,8 +107,41 @@ def remove_outliers_by_vowel(df, std_threshold=3):
         return df
 
 
+def filter_basic_vowels(df):
+    """Keep only rows whose vowels map to the core IPA set."""
+    if df is None or df.empty:
+        return df
+
+    if 'vowel' in df.columns:
+        source = df['vowel']
+    elif 'vowel_raw' in df.columns:
+        source = df['vowel_raw']
+    else:
+        return df
+
+    ipa_series = source.fillna('').astype(str).apply(lambda value: convert_to_ipa_label(value).strip().lower())
+    mask = ipa_series.isin(CORE_VOWELS_IPA_NORMALIZED)
+
+    if not mask.any():
+        return df.iloc[0:0].copy()
+
+    filtered = df.loc[mask].copy()
+
+    # Ensure the vowel column reflects IPA values from the filtered set
+    if 'vowel' in filtered.columns:
+        filtered.loc[:, 'vowel'] = filtered['vowel'].astype(str).apply(convert_to_ipa_label)
+    else:
+        filtered.loc[:, 'vowel'] = source.loc[mask].apply(convert_to_ipa_label)
+
+    return filtered
+
+
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads'
+# nginx 리버스 프록시 뒤에서 X-Forwarded-* 헤더를 신뢰
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+app.config['UPLOAD_FOLDER'] = os.path.join(BASE_DIR, 'uploads')
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file size for WAV/TextGrid
 app.config['ALLOWED_EXTENSIONS'] = {'wav', 'TextGrid', 'textgrid', 'csv', 'xlsx', 'xls', 'txt'}
 
@@ -643,4 +677,6 @@ def download_extracted_data():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    debug = os.environ.get('FLASK_DEBUG', '0') == '1'
+    app.run(debug=debug, host='0.0.0.0', port=port)
