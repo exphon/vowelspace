@@ -115,6 +115,30 @@ def calculate_ellipse(x, y, n_std=2.0, n_points=100):
     return x_ellipse, y_ellipse
 
 
+def _value_format(scale):
+    """Number format for hover text: whole numbers for Hz/Mel, 2 decimals for Bark/ERB."""
+    return '.0f' if str(scale).lower()[:3] in ('hz', 'mel') else '.2f'
+
+
+def _reversed_axis_range(values, hz_high, hz_low, scale):
+    """
+    Reversed [high, low] axis range for a vowel-space axis.
+
+    The reference window is given in Hz and converted to the display scale, so
+    the same part of the vowel space is shown whatever the scale. It is widened
+    when the data (points or ellipse outlines) fall outside it, so nothing is
+    ever drawn off-screen.
+    """
+    high, low = _hz_to_scale(hz_high, scale), _hz_to_scale(hz_low, scale)
+    vals = np.asarray(values, dtype=float)
+    vals = vals[np.isfinite(vals)]
+    if vals.size:
+        pad = 0.03 * (high - low)
+        high = max(high, float(vals.max()) + pad)
+        low = min(low, float(vals.min()) - pad)
+    return [high, low]
+
+
 def create_static_vowel_space(df, scale='Hz'):
     """
     Create an interactive static vowel space plot (F1 vs F2)
@@ -128,6 +152,8 @@ def create_static_vowel_space(df, scale='Hz'):
     if df is None or df.empty:
         print("Error: Empty dataframe in create_static_vowel_space")
         return None
+
+    fmt = _value_format(scale)
     
     df = _filter_korean_diphthongs(df)
 
@@ -162,8 +188,8 @@ def create_static_vowel_space(df, scale='Hz'):
                             f"<b>{vowel}</b><br>" +
                             f"Speaker: {speaker}<br>" +
                             f"Language: {lang}<br>" +
-                            f"F1: {f1:.0f} Hz<br>" +
-                            f"F2: {f2:.0f} Hz"
+                            f"F1: {f1:{fmt}} {scale}<br>" +
+                            f"F2: {f2:{fmt}} {scale}"
                             for f1, f2 in zip(vowel_data['F1'], vowel_data['F2'])
                         ]
                         
@@ -198,8 +224,8 @@ def create_static_vowel_space(df, scale='Hz'):
                     hover_text = [
                         f"<b>{vowel}</b><br>" +
                         f"Speaker: {speaker}<br>" +
-                        f"F1: {f1:.0f} Hz<br>" +
-                        f"F2: {f2:.0f} Hz"
+                        f"F1: {f1:{fmt}} {scale}<br>" +
+                        f"F2: {f2:{fmt}} {scale}"
                         for f1, f2 in zip(vowel_data['F1'], vowel_data['F2'])
                     ]
                     
@@ -234,8 +260,8 @@ def create_static_vowel_space(df, scale='Hz'):
                     hover_text = [
                         f"<b>{vowel}</b><br>" +
                         f"Language: {lang}<br>" +
-                        f"F1: {f1:.0f} Hz<br>" +
-                        f"F2: {f2:.0f} Hz"
+                        f"F1: {f1:{fmt}} {scale}<br>" +
+                        f"F2: {f2:{fmt}} {scale}"
                         for f1, f2 in zip(vowel_data['F1'], vowel_data['F2'])
                     ]
                     
@@ -264,8 +290,8 @@ def create_static_vowel_space(df, scale='Hz'):
                 
                 hover_text = [
                     f"<b>{vowel}</b><br>" +
-                    f"F1: {f1:.0f} Hz<br>" +
-                    f"F2: {f2:.0f} Hz"
+                    f"F1: {f1:{fmt}} {scale}<br>" +
+                    f"F2: {f2:{fmt}} {scale}"
                     for f1, f2 in zip(vowel_data['F1'], vowel_data['F2'])
                 ]
                 
@@ -286,7 +312,7 @@ def create_static_vowel_space(df, scale='Hz'):
         else:
             # No grouping - simple scatter plot
             hover_text = [
-                f"F1: {f1:.0f} Hz<br>F2: {f2:.0f} Hz"
+                f"F1: {f1:{fmt}} {scale}<br>F2: {f2:{fmt}} {scale}"
                 for f1, f2 in zip(df['F1'], df['F2'])
             ]
             
@@ -386,13 +412,14 @@ def create_dynamic_formant_trajectory(df, scale='Hz'):
     if df.empty:
         return None
     
+    fmt = _value_format(scale)
     df = _filter_korean_diphthongs(df)
 
     # Check if time information is available
     if 'time' not in df.columns:
         # If no time column, create static plot with sequence numbers
         if 'vowel' not in df.columns:
-            return create_static_vowel_space(df)
+            return create_static_vowel_space(df, scale=scale)
         
         # Group by vowel and add sequence number
         df = df.copy()
@@ -429,8 +456,8 @@ def create_dynamic_formant_trajectory(df, scale='Hz'):
                             f"<b>{vowel}</b><br>" +
                             f"Speaker: {speaker}<br>" +
                             f"Language: {lang}<br>" +
-                            f"F1: {f1:.0f} Hz<br>" +
-                            f"F2: {f2:.0f} Hz<br>" +
+                            f"F1: {f1:{fmt}} {scale}<br>" +
+                            f"F2: {f2:{fmt}} {scale}<br>" +
                             f"{time_label}: {t:.3f}"
                             for f1, f2, t in zip(vowel_data['F1'], vowel_data['F2'], vowel_data[time_col])
                         ]
@@ -461,8 +488,8 @@ def create_dynamic_formant_trajectory(df, scale='Hz'):
                     hover_text = [
                         f"<b>{vowel}</b><br>" +
                         f"Speaker: {speaker}<br>" +
-                        f"F1: {f1:.0f} Hz<br>" +
-                        f"F2: {f2:.0f} Hz<br>" +
+                        f"F1: {f1:{fmt}} {scale}<br>" +
+                        f"F2: {f2:{fmt}} {scale}<br>" +
                         f"{time_label}: {t:.3f}"
                         for f1, f2, t in zip(vowel_data['F1'], vowel_data['F2'], vowel_data[time_col])
                     ]
@@ -489,8 +516,8 @@ def create_dynamic_formant_trajectory(df, scale='Hz'):
             if len(vowel_data) > 1:
                 hover_text = [
                     f"<b>{vowel}</b><br>" +
-                    f"F1: {f1:.0f} Hz<br>" +
-                    f"F2: {f2:.0f} Hz<br>" +
+                    f"F1: {f1:{fmt}} {scale}<br>" +
+                    f"F2: {f2:{fmt}} {scale}<br>" +
                     f"{time_label}: {t:.3f}"
                     for f1, f2, t in zip(vowel_data['F1'], vowel_data['F2'], vowel_data[time_col])
                 ]
@@ -510,7 +537,7 @@ def create_dynamic_formant_trajectory(df, scale='Hz'):
         df_sorted = df.sort_values(time_col)
         
         hover_text = [
-            f"F1: {f1:.0f} Hz<br>F2: {f2:.0f} Hz<br>{time_label}: {t:.3f}"
+            f"F1: {f1:{fmt}} {scale}<br>F2: {f2:{fmt}} {scale}<br>{time_label}: {t:.3f}"
             for f1, f2, t in zip(df_sorted['F1'], df_sorted['F2'], df_sorted[time_col])
         ]
         
@@ -1220,6 +1247,7 @@ def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True
         return None
     
     df = _filter_korean_diphthongs(df)
+    fmt = _value_format(scale)
 
     if df is None or df.empty:
         return None
@@ -1289,7 +1317,7 @@ def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True
                                     legendgroup=f"{lang}_{speaker}",
                                     showlegend=False,
                                     marker=dict(size=5, color=color, opacity=0.5),
-                                    hovertemplate=f"<b>{vowel}</b><br>Speaker: {speaker}<br>Language: {lang}<br>F1: %{{y:.0f}} Hz<br>F2: %{{x:.0f}} Hz<extra></extra>"
+                                    hovertemplate=f"<b>{vowel}</b><br>Speaker: {speaker}<br>Language: {lang}<br>F1: %{{y:{fmt}}} {scale}<br>F2: %{{x:{fmt}}} {scale}<extra></extra>"
                                 ))
                             
                             color_idx += 1
@@ -1333,7 +1361,7 @@ def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True
                                 legendgroup=speaker,
                                 showlegend=False,
                                 marker=dict(size=5, color=color, opacity=0.5),
-                                hovertemplate=f"<b>{vowel}</b><br>Speaker: {speaker}<br>F1: %{{y:.0f}} Hz<br>F2: %{{x:.0f}} Hz<extra></extra>"
+                                hovertemplate=f"<b>{vowel}</b><br>Speaker: {speaker}<br>F1: %{{y:{fmt}}} {scale}<br>F2: %{{x:{fmt}}} {scale}<extra></extra>"
                             ))
                         
                         color_idx += 1
@@ -1371,18 +1399,22 @@ def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True
                             name=f"{vowel} (points)",
                             showlegend=False,
                             marker=dict(size=5, color=color, opacity=0.5),
-                            hovertemplate=f"<b>{vowel}</b><br>F1: %{{y:.0f}} Hz<br>F2: %{{x:.0f}} Hz<extra></extra>"
+                            hovertemplate=f"<b>{vowel}</b><br>F1: %{{y:{fmt}}} {scale}<br>F2: %{{x:{fmt}}} {scale}<extra></extra>"
                         ))
         
-        # Invert axes and set fixed ranges
+        # Inverted axes. The reference window (F2 2700-600 Hz, F1 1200-100 Hz)
+        # is converted to the display scale and widened to cover every trace;
+        # a window fixed in Hz hides all Bark/ERB/Mel data.
+        all_x = np.concatenate([np.asarray(t.x, dtype=float) for t in fig.data]) if fig.data else []
+        all_y = np.concatenate([np.asarray(t.y, dtype=float) for t in fig.data]) if fig.data else []
         fig.update_xaxes(
-            range=[2700, 600],  # F2: 2700 to 600 (reversed)
+            range=_reversed_axis_range(all_x, 2700, 600, scale),
             title=f'F2 ({scale})',
             showgrid=True,
             gridcolor='lightgray'
         )
         fig.update_yaxes(
-            range=[1200, 100],  # F1: 1200 to 100 (reversed)
+            range=_reversed_axis_range(all_y, 1200, 100, scale),
             title=f'F1 ({scale})',
             showgrid=True,
             gridcolor='lightgray'
@@ -2208,7 +2240,7 @@ def create_pairwise_comparison_plot(pairwise_results, scale='Hz'):
                 text=f1_sig,
                 textposition='outside',
                 textfont=dict(size=14, color='black'),
-                hovertemplate='%{x}<br>Mean Diff: %{y:.1f} Hz<br>Significance: %{text}<extra></extra>'
+                hovertemplate='%{x}<br>Mean Diff: %{y:.2f} ' + str(scale) + '<br>Significance: %{text}<extra></extra>'
             ),
             row=1, col=1
         )
@@ -2224,7 +2256,7 @@ def create_pairwise_comparison_plot(pairwise_results, scale='Hz'):
                 text=f2_sig,
                 textposition='outside',
                 textfont=dict(size=14, color='black'),
-                hovertemplate='%{x}<br>Mean Diff: %{y:.1f} Hz<br>Significance: %{text}<extra></extra>'
+                hovertemplate='%{x}<br>Mean Diff: %{y:.2f} ' + str(scale) + '<br>Significance: %{text}<extra></extra>'
             ),
             row=1, col=2
         )
