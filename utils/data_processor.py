@@ -43,6 +43,12 @@ ARPABET_TO_IPA = {
 
 # IPA vowel characters set (lowercase) for quick membership tests
 IPA_VOWEL_CHARS = set('aeiouɪʊəɚɝɜɞʌɔɑæɒɛøœɶɨɯʏɐɤɵ') | {'j', 'w', 'y'}
+# Glide letters: allowed inside a vowel label (ya, wa, ju ...) but never a
+# vowel on their own. A lone 'j'/'w' is a consonant in every supported
+# convention (IPA glides, romanized Korean J = ㅈ). 'y' is ambiguous: lowercase
+# 'y' alone is the IPA close front rounded vowel, uppercase 'Y' alone is the
+# ARPABET / uppercase-romanization glide.
+GLIDE_CHARS = {'j', 'w'}
 
 # Korean romanized vowel tokens mapped to IPA approximations
 KOREAN_VOWEL_TO_IPA = {
@@ -115,6 +121,8 @@ def is_vowel_label(label: str) -> bool:
     - ARPABET with stress digits (e.g., AH0, IY1)
     - IPA with length marks (:, ː) and stress marks (ˈ, ˌ)
     - Removes diacritics before checking
+    - Glides alone (j, w, uppercase Y) are consonants; they only count as
+      part of a vowel label that also has a vowel letter (ya, wa, ju)
     """
     s = normalize_vowel_label(label)
     if not s:
@@ -132,6 +140,10 @@ def is_vowel_label(label: str) -> bool:
     cleaned = re.sub(r"[^A-Za-zɪʊəɚɝɜɞʌɔɑæɒɛøœɶɨɯʏɐɤɵ]", '', s)
     cleaned = cleaned.lower()
     if cleaned and all(ch in IPA_VOWEL_CHARS for ch in cleaned):
+        if all(ch in GLIDE_CHARS for ch in cleaned):
+            return False
+        if s == 'Y':
+            return False
         return True
 
     return False
@@ -315,6 +327,11 @@ def process_wav_textgrid(wav_files, textgrid_files=None, ceiling_mode='auto',
 
             if textgrid is not None:
                 tokens = collect_vowel_tokens(textgrid)
+                if not tokens:
+                    metadata['processing_info'].append(
+                        f"⚠ {basename}: no phone/vowel tier with vowel labels found "
+                        f"(word-level tiers are not used)"
+                    )
             else:
                 tokens = collect_voiced_frames(sound)
 
@@ -486,24 +503,90 @@ def extract_metadata_from_filename(basename):
     return metadata
 
 
+# Tier selection: a word tier must never be mistaken for the phone tier,
+# because words spelled only with vowel letters ("you", "a", "I", "oh") pass
+# is_vowel_label and would be measured as vowels.
+VOWEL_TIER_NAME_KEYWORDS = ('vowel',)
+PHONE_TIER_NAME_KEYWORDS = ('phone', 'segment')
+WORD_TIER_NAME_KEYWORDS = ('word', 'ortho', 'utter', 'sentence')
+MAX_PHONE_LABEL_LENGTH = 3        # longest plausible phone label (e.g. 'yeo', 'spn')
+MAX_LONG_LABEL_FRACTION = 0.3     # more distinct long labels than this -> word-like tier
+
+
+def _tier_label_stats(textgrid, tier):
+    """
+    (n_vowel_intervals, n_labeled_intervals, word_like) for one interval tier.
+
+    A tier is word-like when more than ``MAX_LONG_LABEL_FRACTION`` of its
+    distinct labels are longer than ``MAX_PHONE_LABEL_LENGTH`` characters.
+    """
+    n_intervals = int(call(textgrid, "Get number of intervals", tier))
+    labels = []
+    for i in range(1, n_intervals + 1):
+        label = normalize_vowel_label(call(textgrid, "Get label of interval", tier, i))
+        if label:
+            labels.append(label)
+    n_vowel = sum(1 for label in labels if is_vowel_label(label))
+    distinct = set(labels)
+    n_long = 0
+    for label in distinct:
+        bare = _strip_diacritics(label.replace('ˈ', '').replace('ˌ', '').replace('ː', '').replace(':', ''))
+        if len(bare) > MAX_PHONE_LABEL_LENGTH:
+            n_long += 1
+    word_like = bool(distinct) and n_long / len(distinct) > MAX_LONG_LABEL_FRACTION
+    return n_vowel, len(labels), word_like
+
+
 def find_vowel_tier(textgrid):
-    """Index (1-based) of the tier most likely to hold vowel/phone labels."""
+    """
+    Index (1-based) of the interval tier that holds vowel/phone labels, or
+    None when no tier qualifies.
+
+    Point tiers, tiers without any vowel label and tiers named like a word
+    tier are never used. Among the rest, a tier named 'vowel' wins, then one
+    named 'phone'/'segment'; unnamed tiers are judged by content: word-like
+    tiers (mostly long labels) are rejected and the tier with the most
+    labelled intervals, i.e. the finest segmentation, is chosen.
+    """
     n_tiers = int(call(textgrid, "Get number of tiers"))
-    tier_names = [call(textgrid, "Get tier name", i) for i in range(1, n_tiers + 1)]
-    for idx, name in enumerate(tier_names, 1):
-        if name and any(keyword in str(name).lower() for keyword in ['vowel', 'phone', 'segment']):
-            return idx
-    return 1
+    candidates = []
+    for idx in range(1, n_tiers + 1):
+        if not call(textgrid, "Is interval tier", idx):
+            continue
+        name = str(call(textgrid, "Get tier name", idx) or '').lower()
+        if any(keyword in name for keyword in WORD_TIER_NAME_KEYWORDS):
+            continue
+        n_vowel, n_labeled, word_like = _tier_label_stats(textgrid, idx)
+        if n_vowel == 0:
+            continue
+        if any(keyword in name for keyword in VOWEL_TIER_NAME_KEYWORDS):
+            rank = 0
+        elif any(keyword in name for keyword in PHONE_TIER_NAME_KEYWORDS):
+            rank = 1
+        elif word_like:
+            continue
+        else:
+            rank = 2
+        candidates.append((rank, -n_labeled, idx))
+    if not candidates:
+        return None
+    return min(candidates)[2]
 
 
 def collect_vowel_tokens(textgrid):
     """
     Vowel intervals of a TextGrid as a list of dicts:
     ``{'vowel': ipa, 'vowel_raw': clean_label, 'start': s, 'end': e}``.
+
+    Returns an empty list when the TextGrid has no phone/vowel tier (see
+    ``find_vowel_tier``).
     """
     tokens = []
     try:
         tier = find_vowel_tier(textgrid)
+        if tier is None:
+            print("No phone/vowel tier found in TextGrid (word-level tiers are not used)")
+            return tokens
         n_intervals = int(call(textgrid, "Get number of intervals", tier))
         for i in range(1, n_intervals + 1):
             label = call(textgrid, "Get label of interval", tier, i)

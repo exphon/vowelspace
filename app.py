@@ -337,7 +337,10 @@ def upload_file():
         
         if data is None or data.empty:
             # Return a user-friendly 400 error instead of 500 for invalid/empty data
-            err_msg = 'Data processing failed. Please include F1 and F2 columns or provide numeric columns in reasonable formant ranges (F1: 200–1000 Hz, F2: 800–3000 Hz).'
+            if 'wav' in file_types:
+                err_msg = 'No vowels could be measured. Each TextGrid needs an interval tier with phone- or vowel-level labels (ARPABET, IPA or romanized Korean); word-level tiers are not used.'
+            else:
+                err_msg = 'Data processing failed. Please include F1 and F2 columns or provide numeric columns in reasonable formant ranges (F1: 200–1000 Hz, F2: 800–3000 Hz).'
             # If we have detection info, include a hint
             if detection_info is not None:
                 try:
