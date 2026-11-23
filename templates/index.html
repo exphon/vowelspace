@@ -200,7 +200,7 @@ SP02,ai,1,1.00,350,2250,2760</pre>
 
                                     <h4>3 · Read the plot</h4>
                                     <ul>
-                                        <li><strong>One shared frequency axis:</strong> F1, F2 and F3 are drawn in the same panel. <strong>Colour = vowel, line style = formant</strong> (F1 solid, F2 dashed, F3 dotted); the legend’s “Line style” group shows grey samples.</li>
+                                        <li><strong>One shared frequency axis:</strong> F1, F2 and F3 are drawn in the same panel. <strong>Colour + marker shape = vowel, line style = formant</strong> (F1 solid, F2 dashed, F3 dotted); the legend’s “Line style” group shows grey samples.</li>
                                         <li><strong>Fixed y axis:</strong> 0–3000 Hz regardless of which vowels are present, so plots are directly comparable. If an <code>F3</code> column exists the top is raised to <strong>max(F3) × 1.2</strong> (never below 3000 Hz). With Bark/ERB/Mel the same range is converted (3000 Hz ≈ 15.7 Bark).</li>
                                         <li><strong>End labels:</strong> each line ends with its formant name (F1/F2/F3) in the vowel colour. For vowels with several productions the label sits on the mean line only.</li>
                                         <li><strong>Individual vs. mean:</strong> a vowel with one production is a single bold line; with two or more, each production is a thin translucent line and the <strong>mean trajectory</strong> (interpolated on a 21-point grid) is bold. The legend shows the count, e.g. “a (mean of 6)”.</li>
@@ -1022,7 +1022,7 @@ a,700,1200,1.5</pre>
                     html += '</ul>';
                     
                     html += '<p style="margin-top: 1rem; padding: 1rem; background: #fff3cd; border-radius: 6px; border-left: 4px solid #ffc107;">';
-                    html += '💡 <strong>Interpretation Tip:</strong> Color represents vowels. If the same color (same vowel) clusters in one area, the vowel is stably pronounced, ';
+                    html += '💡 <strong>Interpretation Tip:</strong> Color and marker shape represent vowels. If the same color and shape (same vowel) clusters in one area, the vowel is stably pronounced, ';
                     html += 'and if scattered in multiple places, there is high pronunciation variation. If vowel clusters are well separated in the F1 vs F2 scatter plot, ';
                     html += 'they are acoustically distinct.';
                     html += '</p>';

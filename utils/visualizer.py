@@ -25,6 +25,105 @@ CUSTOM_COLORS = [
 ]
 
 
+# Marker shapes paired with the colours above. 11 shapes against 12 colours:
+# the two cycles only line up again after 132 vowels, so every vowel gets its
+# own colour + shape combination and vowels that share a colour differ in shape.
+VOWEL_SYMBOLS = [
+    'circle', 'square', 'diamond', 'triangle-up', 'triangle-down', 'star',
+    'cross', 'x', 'pentagon', 'hourglass', 'triangle-left',
+]
+# Vowels own colour and shape, so speakers/languages are told apart by the
+# marker fill (points) and the line dash (ellipses, trajectories).
+GROUP_FILLS = ['', '-open', '-dot', '-open-dot']
+GROUP_DASHES = ['solid', 'dash', 'dot', 'dashdot']
+
+
+def _vowel_styles(vowels):
+    """
+    ``{vowel: (colour, marker symbol)}`` for a set of vowels (or other groups).
+
+    The assignment follows the sorted labels, so a vowel looks the same for
+    every speaker and in every plot drawn from the same data.
+    """
+    labels = sorted({v for v in vowels if not pd.isna(v)}, key=str)
+    return {
+        v: (CUSTOM_COLORS[i % len(CUSTOM_COLORS)], VOWEL_SYMBOLS[i % len(VOWEL_SYMBOLS)])
+        for i, v in enumerate(labels)
+    }
+
+
+def _vowel_marker(color, symbol, fill='', size=10, opacity=0.8):
+    """Marker dict for one vowel; ``fill`` is one of GROUP_FILLS."""
+    is_open = fill.startswith('-open')
+    return dict(
+        size=size, symbol=symbol + fill, color=color, opacity=opacity,
+        line=dict(width=1.8 if is_open else 1, color=color if is_open else 'white'),
+    )
+
+
+def _iter_vowel_groups(df, group_cols):
+    """
+    Walk the data group by group (language and/or speaker), vowel by vowel.
+
+    Yields dicts with: ``vowel``, ``data`` (rows of that vowel in that group),
+    ``color``/``symbol`` (fixed per vowel), ``fill``/``dash`` (fixed per group),
+    ``legendgroup``/``legendtitle`` (None without grouping) and ``hover``
+    (HTML lines naming speaker and language).
+    """
+    styles = _vowel_styles(df['vowel'].unique())
+    group_cols = [c for c in group_cols if c in df.columns]
+    if group_cols:
+        groups = [(key if isinstance(key, tuple) else (key,), g)
+                  for key, g in df.groupby(group_cols, sort=True)]
+    else:
+        groups = [((), df)]
+
+    for gi, (key, gdata) in enumerate(groups):
+        values = dict(zip(group_cols, key))
+        lang, speaker = values.get('native_language'), values.get('speaker')
+        if lang is not None and speaker is not None:
+            legendgroup, legendtitle = f"{lang}_{speaker}", f"<b>{lang}</b> - {speaker}"
+        elif group_cols:
+            legendgroup, legendtitle = str(key[0]), f"<b>{key[0]}</b>"
+        else:
+            legendgroup = legendtitle = None
+        hover = ''
+        if speaker is not None:
+            hover += f"Speaker: {speaker}<br>"
+        if lang is not None:
+            hover += f"Language: {lang}<br>"
+        for vowel in sorted(gdata['vowel'].dropna().unique(), key=str):
+            color, symbol = styles[vowel]
+            yield dict(
+                vowel=vowel, data=gdata[gdata['vowel'] == vowel],
+                color=color, symbol=symbol,
+                fill=GROUP_FILLS[gi % len(GROUP_FILLS)],
+                dash=GROUP_DASHES[gi % len(GROUP_DASHES)],
+                legendgroup=legendgroup, legendtitle=legendtitle, hover=hover,
+                n_groups=len(groups),
+            )
+
+
+def _legend_group(item):
+    """
+    Legend-group keyword arguments for a trace of ``item`` (see _iter_vowel_groups).
+
+    With speaker/language grouping the group is the speaker; without it every
+    vowel is its own group, so all traces of a vowel are toggled together.
+    """
+    if item['legendgroup'] is None:
+        return dict(legendgroup=f"vowel:{item['vowel']}")
+    return dict(legendgroup=item['legendgroup'], legendgrouptitle=dict(text=item['legendtitle']))
+
+
+def _style_note(n_groups, group_cue):
+    """Subtitle text that explains the encoding."""
+    note = 'Colour + marker shape = vowel'
+    if n_groups > 1:
+        note += f' • {group_cue} = speaker/group'
+    return note
+
+
 KOREAN_DIPHTHONG_PREFIXES = ('w', 'y')
 
 
@@ -162,152 +261,25 @@ def create_static_vowel_space(df, scale='Hz'):
 
     try:
         fig = go.Figure()
-        
-        # Determine grouping strategy based on available columns
-        has_vowel = 'vowel' in df.columns
-        has_speaker = 'speaker' in df.columns
-        has_language = 'native_language' in df.columns
-        
-        # Color palette
-        colors = CUSTOM_COLORS
-        
-        if has_vowel and has_speaker and has_language:
-            # 3-level grouping: Language > Speaker > Vowel
-            color_idx = 0
-            
-            for lang in sorted(df['native_language'].unique()):
-                lang_data = df[df['native_language'] == lang]
-                
-                for speaker in sorted(lang_data['speaker'].unique()):
-                    speaker_data = lang_data[lang_data['speaker'] == speaker]
-                    
-                    for vowel in sorted(speaker_data['vowel'].unique()):
-                        vowel_data = speaker_data[speaker_data['vowel'] == vowel]
-                        
-                        hover_text = [
-                            f"<b>{vowel}</b><br>" +
-                            f"Speaker: {speaker}<br>" +
-                            f"Language: {lang}<br>" +
-                            f"F1: {f1:{fmt}} {scale}<br>" +
-                            f"F2: {f2:{fmt}} {scale}"
-                            for f1, f2 in zip(vowel_data['F1'], vowel_data['F2'])
-                        ]
-                        
-                        fig.add_trace(go.Scatter(
-                            x=vowel_data['F2'],
-                            y=vowel_data['F1'],
-                            mode='markers',
-                            name=vowel,
-                            legendgroup=f"{lang}_{speaker}",
-                            legendgrouptitle=dict(text=f"<b>{lang}</b> - {speaker}"),
-                            marker=dict(
-                                size=10,
-                                color=colors[color_idx % len(colors)],
-                                opacity=0.7,
-                                line=dict(width=1, color='white')
-                            ),
-                            text=hover_text,
-                            hoverinfo='text'
-                        ))
-                        color_idx += 1
-                        
-        elif has_vowel and has_speaker:
-            # 2-level grouping: Speaker > Vowel
-            color_idx = 0
-            
-            for speaker in sorted(df['speaker'].unique()):
-                speaker_data = df[df['speaker'] == speaker]
-                
-                for vowel in sorted(speaker_data['vowel'].unique()):
-                    vowel_data = speaker_data[speaker_data['vowel'] == vowel]
-                    
-                    hover_text = [
-                        f"<b>{vowel}</b><br>" +
-                        f"Speaker: {speaker}<br>" +
-                        f"F1: {f1:{fmt}} {scale}<br>" +
-                        f"F2: {f2:{fmt}} {scale}"
-                        for f1, f2 in zip(vowel_data['F1'], vowel_data['F2'])
-                    ]
-                    
-                    fig.add_trace(go.Scatter(
-                        x=vowel_data['F2'],
-                        y=vowel_data['F1'],
-                        mode='markers',
-                        name=vowel,
-                        legendgroup=speaker,
-                        legendgrouptitle=dict(text=f"<b>{speaker}</b>"),
-                        marker=dict(
-                            size=10,
-                            color=colors[color_idx % len(colors)],
-                            opacity=0.7,
-                            line=dict(width=1, color='white')
-                        ),
-                        text=hover_text,
-                        hoverinfo='text'
-                    ))
-                    color_idx += 1
-                    
-        elif has_vowel and has_language:
-            # 2-level grouping: Language > Vowel
-            color_idx = 0
-            
-            for lang in sorted(df['native_language'].unique()):
-                lang_data = df[df['native_language'] == lang]
-                
-                for vowel in sorted(lang_data['vowel'].unique()):
-                    vowel_data = lang_data[lang_data['vowel'] == vowel]
-                    
-                    hover_text = [
-                        f"<b>{vowel}</b><br>" +
-                        f"Language: {lang}<br>" +
-                        f"F1: {f1:{fmt}} {scale}<br>" +
-                        f"F2: {f2:{fmt}} {scale}"
-                        for f1, f2 in zip(vowel_data['F1'], vowel_data['F2'])
-                    ]
-                    
-                    fig.add_trace(go.Scatter(
-                        x=vowel_data['F2'],
-                        y=vowel_data['F1'],
-                        mode='markers',
-                        name=vowel,
-                        legendgroup=lang,
-                        legendgrouptitle=dict(text=f"<b>{lang}</b>"),
-                        marker=dict(
-                            size=10,
-                            color=colors[color_idx % len(colors)],
-                            opacity=0.7,
-                            line=dict(width=1, color='white')
-                        ),
-                        text=hover_text,
-                        hoverinfo='text'
-                    ))
-                    color_idx += 1
-                    
-        elif has_vowel:
-            # Single-level grouping: Vowel only
-            for idx, vowel in enumerate(sorted(df['vowel'].unique())):
-                vowel_data = df[df['vowel'] == vowel]
-                
+        n_groups = 1
+
+        if 'vowel' in df.columns:
+            # Colour + shape identify the vowel; the fill identifies the speaker/language
+            for item in _iter_vowel_groups(df, ['native_language', 'speaker']):
+                vowel, vowel_data, n_groups = item['vowel'], item['data'], item['n_groups']
                 hover_text = [
-                    f"<b>{vowel}</b><br>" +
-                    f"F1: {f1:{fmt}} {scale}<br>" +
-                    f"F2: {f2:{fmt}} {scale}"
+                    f"<b>{vowel}</b><br>{item['hover']}F1: {f1:{fmt}} {scale}<br>F2: {f2:{fmt}} {scale}"
                     for f1, f2 in zip(vowel_data['F1'], vowel_data['F2'])
                 ]
-                
                 fig.add_trace(go.Scatter(
                     x=vowel_data['F2'],
                     y=vowel_data['F1'],
                     mode='markers',
-                    name=vowel,
-                    marker=dict(
-                        size=10,
-                        color=colors[idx % len(colors)],
-                        opacity=0.7,
-                        line=dict(width=1, color='white')
-                    ),
+                    name=str(vowel),
+                    marker=_vowel_marker(item['color'], item['symbol'], item['fill']),
                     text=hover_text,
-                    hoverinfo='text'
+                    hoverinfo='text',
+                    **_legend_group(item)
                 ))
         else:
             # No grouping - simple scatter plot
@@ -341,7 +313,7 @@ def create_static_vowel_space(df, scale='Hz'):
         
         # Update layout with interactive legend
         fig.update_layout(
-            title=f'Interactive Vowel Space (F1 vs F2) - {scale}<br><sub>Click legend items to show/hide • Double-click to isolate</sub>',
+            title=f'Interactive Vowel Space (F1 vs F2) - {scale}<br><sub>{_style_note(n_groups, "Marker fill")} • Click legend items to show/hide • Double-click to isolate</sub>',
             width=1000,
             height=700,
             plot_bgcolor='white',
@@ -375,11 +347,11 @@ def create_static_vowel_space(df, scale='Hz'):
         return None
 
 
-def _trajectory_marker(n_points):
+def _trajectory_marker(n_points, start_symbol='circle'):
     """
     Marker settings that show the direction of a trajectory.
 
-    The first point is an open circle (start). An arrowhead on the second
+    The first point is an open marker in the vowel's shape (start). An arrowhead on the second
     point shows the departure direction and an arrowhead on the last point
     marks the end; arrowheads are oriented from the previous point (Plotly
     ``angleref='previous'``). All other points are small dots.
@@ -388,8 +360,8 @@ def _trajectory_marker(n_points):
     symbols, sizes = [], []
     for i in range(n):
         if i == 0:
-            symbols.append('circle-open')
-            sizes.append(10)
+            symbols.append(f'{start_symbol}-open')
+            sizes.append(12)
         elif i == n - 1 or (i == 1 and n > 2):
             symbols.append('arrow')
             sizes.append(14)
@@ -431,107 +403,48 @@ def create_dynamic_formant_trajectory(df, scale='Hz'):
         time_label = 'Time (s)'
     
     fig = go.Figure()
-    
-    # Determine grouping strategy
-    has_vowel = 'vowel' in df.columns
-    has_speaker = 'speaker' in df.columns
-    has_language = 'native_language' in df.columns
-    
-    colors = CUSTOM_COLORS
-    color_idx = 0
-    
-    if has_vowel and has_speaker and has_language:
-        # 3-level grouping with trajectories
-        for lang in sorted(df['native_language'].unique()):
-            lang_data = df[df['native_language'] == lang]
-            
-            for speaker in sorted(lang_data['speaker'].unique()):
-                speaker_data = lang_data[lang_data['speaker'] == speaker]
-                
-                for vowel in sorted(speaker_data['vowel'].unique()):
-                    vowel_data = speaker_data[speaker_data['vowel'] == vowel].sort_values(time_col)
-                    
-                    if len(vowel_data) > 1:
-                        hover_text = [
-                            f"<b>{vowel}</b><br>" +
-                            f"Speaker: {speaker}<br>" +
-                            f"Language: {lang}<br>" +
-                            f"F1: {f1:{fmt}} {scale}<br>" +
-                            f"F2: {f2:{fmt}} {scale}<br>" +
-                            f"{time_label}: {t:.3f}"
-                            for f1, f2, t in zip(vowel_data['F1'], vowel_data['F2'], vowel_data[time_col])
-                        ]
-                        
-                        fig.add_trace(go.Scatter(
-                            x=vowel_data['F2'],
-                            y=vowel_data['F1'],
-                            mode='lines+markers',
-                            name=vowel,
-                            legendgroup=f"{lang}_{speaker}",
-                            legendgrouptitle=dict(text=f"<b>{lang}</b> - {speaker}"),
-                            line=dict(color=colors[color_idx % len(colors)], width=2),
-                            marker=_trajectory_marker(len(vowel_data)),
-                            text=hover_text,
-                            hoverinfo='text'
-                        ))
-                        color_idx += 1
-                        
-    elif has_vowel and has_speaker:
-        # 2-level grouping
-        for speaker in sorted(df['speaker'].unique()):
-            speaker_data = df[df['speaker'] == speaker]
-            
-            for vowel in sorted(speaker_data['vowel'].unique()):
-                vowel_data = speaker_data[speaker_data['vowel'] == vowel].sort_values(time_col)
-                
-                if len(vowel_data) > 1:
-                    hover_text = [
-                        f"<b>{vowel}</b><br>" +
-                        f"Speaker: {speaker}<br>" +
-                        f"F1: {f1:{fmt}} {scale}<br>" +
-                        f"F2: {f2:{fmt}} {scale}<br>" +
-                        f"{time_label}: {t:.3f}"
-                        for f1, f2, t in zip(vowel_data['F1'], vowel_data['F2'], vowel_data[time_col])
-                    ]
-                    
-                    fig.add_trace(go.Scatter(
-                        x=vowel_data['F2'],
-                        y=vowel_data['F1'],
-                        mode='lines+markers',
-                        name=vowel,
-                        legendgroup=speaker,
-                        legendgrouptitle=dict(text=f"<b>{speaker}</b>"),
-                        line=dict(color=colors[color_idx % len(colors)], width=2),
-                        marker=_trajectory_marker(len(vowel_data)),
-                        text=hover_text,
-                        hoverinfo='text'
-                    ))
-                    color_idx += 1
-                    
-    elif has_vowel:
-        # Single-level grouping
-        for idx, vowel in enumerate(sorted(df['vowel'].unique())):
-            vowel_data = df[df['vowel'] == vowel].sort_values(time_col)
-            
-            if len(vowel_data) > 1:
-                hover_text = [
-                    f"<b>{vowel}</b><br>" +
-                    f"F1: {f1:{fmt}} {scale}<br>" +
-                    f"F2: {f2:{fmt}} {scale}<br>" +
-                    f"{time_label}: {t:.3f}"
-                    for f1, f2, t in zip(vowel_data['F1'], vowel_data['F2'], vowel_data[time_col])
-                ]
-                
-                fig.add_trace(go.Scatter(
-                    x=vowel_data['F2'],
-                    y=vowel_data['F1'],
-                    mode='lines+markers',
-                    name=vowel,
-                    line=dict(color=colors[idx % len(colors)], width=2),
-                    marker=_trajectory_marker(len(vowel_data)),
-                    text=hover_text,
-                    hoverinfo='text'
-                ))
+    n_groups = 1
+
+    if 'vowel' in df.columns:
+        # Colour + start-marker shape identify the vowel; the line dash the speaker
+        group_cols = ['native_language', 'speaker'] if 'speaker' in df.columns else []
+        for item in _iter_vowel_groups(df, group_cols):
+            vowel, n_groups = item['vowel'], item['n_groups']
+            vowel_data = item['data'].sort_values(time_col)
+            if len(vowel_data) < 2:
+                continue
+            hover_text = [
+                f"<b>{vowel}</b><br>{item['hover']}F1: {f1:{fmt}} {scale}<br>F2: {f2:{fmt}} {scale}<br>{time_label}: {t:.3f}"
+                for f1, f2, t in zip(vowel_data['F1'], vowel_data['F2'], vowel_data[time_col])
+            ]
+            fig.add_trace(go.Scatter(
+                x=vowel_data['F2'],
+                y=vowel_data['F1'],
+                mode='lines+markers',
+                name=str(vowel),
+                line=dict(color=item['color'], width=2, dash=item['dash']),
+                marker=_trajectory_marker(len(vowel_data), item['symbol']),
+                text=hover_text,
+                hoverinfo='text',
+                **_legend_group(item)
+            ))
+            # Start of the trajectory: open marker in the vowel's shape + label.
+            # (Drawn separately: the line trace orients its markers along the
+            # path, and the first point has no direction, so it is not drawn.)
+            fig.add_trace(go.Scatter(
+                x=vowel_data['F2'].iloc[:1],
+                y=vowel_data['F1'].iloc[:1],
+                mode='markers+text',
+                name=f"{vowel} (start)",
+                showlegend=False,
+                marker=dict(symbol=f"{item['symbol']}-open", size=12, color=item['color'],
+                            line=dict(width=2, color=item['color'])),
+                text=[f'<b>{vowel}</b>'],
+                textposition='top center',
+                textfont=dict(color=item['color'], size=13),
+                hoverinfo='skip',
+                legendgroup=_legend_group(item)['legendgroup']
+            ))
     else:
         # No grouping - single trajectory
         df_sorted = df.sort_values(time_col)
@@ -567,7 +480,7 @@ def create_dynamic_formant_trajectory(df, scale='Hz'):
     
     # Update layout
     fig.update_layout(
-        title=f'Interactive Formant Trajectory - {scale}<br><sub>Arrowheads point in the direction of time (○ = start) • Click legend items to show/hide • Double-click to isolate</sub>',
+        title=f'Interactive Formant Trajectory - {scale}<br><sub>{_style_note(n_groups, "Line dash")} (open marker = start, arrowheads = direction of time) • Click legend items to show/hide</sub>',
         width=1000,
         height=700,
         plot_bgcolor='white',
@@ -695,7 +608,9 @@ def create_formant_time_trajectory(df, scale='Hz'):
         return None
 
     vowels = sorted({v for v, _, _ in groups})
-    colors = {v: CUSTOM_COLORS[i % len(CUSTOM_COLORS)] for i, v in enumerate(vowels)}
+    styles = _vowel_styles(vowels)
+    colors = {v: styles[v][0] for v in vowels}
+    symbols = {v: styles[v][1] for v in vowels}
 
     fig = go.Figure()
 
@@ -722,10 +637,10 @@ def create_formant_time_trajectory(df, scale='Hz'):
                     x=x[ok], y=y[ok],
                     mode='lines+markers+text' if single else 'lines+markers',
                     name=vowel, legendgroup=vowel,
-                    legendgrouptitle=dict(text='<b>Vowels</b>') if (formant == formants[0]) else None,
+                    legendgrouptitle=dict(text='<b>Vowels</b>') if (formant == formants[0] and vowel == vowels[0]) else None,
                     showlegend=(formant == formants[0] and single and label == v_groups[0][0]),
                     line=dict(color=colors[vowel], width=1.2 if many else 2.5, dash=dash),
-                    marker=dict(size=4 if many else 6),
+                    marker=dict(size=5 if many else 8, symbol=symbols[vowel]),
                     opacity=0.35 if many else 1.0,
                     text=_end_label(int(ok.sum()), formant) if single else hover,
                     textposition='middle right',
@@ -738,9 +653,11 @@ def create_formant_time_trajectory(df, scale='Hz'):
             if many and len(curves) >= 2:
                 mean_curve = np.mean(np.vstack(curves), axis=0)
                 fig.add_trace(go.Scatter(
-                    x=MEAN_TRAJECTORY_GRID, y=mean_curve, mode='lines+text',
+                    x=MEAN_TRAJECTORY_GRID, y=mean_curve, mode='lines+markers+text',
+                    marker=dict(size=9, symbol=symbols[vowel], maxdisplayed=6,
+                                line=dict(width=1, color='white')),
                     name=f'{vowel} (mean of {len(curves)})', legendgroup=vowel,
-                    legendgrouptitle=dict(text='<b>Vowels</b>') if formant == formants[0] else None,
+                    legendgrouptitle=dict(text='<b>Vowels</b>') if (formant == formants[0] and vowel == vowels[0]) else None,
                     showlegend=(formant == formants[0]),
                     line=dict(color=colors[vowel], width=3.5, dash=dash),
                     text=_end_label(len(MEAN_TRAJECTORY_GRID), formant),
@@ -776,7 +693,7 @@ def create_formant_time_trajectory(df, scale='Hz'):
 
     style_text = ', '.join(f"{f} {FORMANT_DASH.get(f, 'solid')}" for f in formants)
     fig.update_layout(
-        title=f'Formant Trajectories over Normalized Time - {scale}<br><sub>Colour = vowel • Line style = formant ({style_text}) • Thin = individual productions, bold = mean • Click legend items to show/hide</sub>',
+        title=f'Formant Trajectories over Normalized Time - {scale}<br><sub>Colour + marker shape = vowel • Line style = formant ({style_text}) • Thin = individual productions, bold = mean • Click legend items to show/hide</sub>',
         width=1000,
         height=650,
         plot_bgcolor='white',
@@ -1263,145 +1180,67 @@ def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True
             n_std = 1.0
         
         fig = go.Figure()
-        
-        # Determine grouping
-        has_vowel = 'vowel' in df.columns
-        has_speaker = 'speaker' in df.columns
-        has_language = 'native_language' in df.columns
-        
-        colors = CUSTOM_COLORS
-        color_idx = 0
-        
-        if has_vowel and has_speaker and has_language:
-            # 3-level grouping
-            for lang in sorted(df['native_language'].unique()):
-                lang_data = df[df['native_language'] == lang]
-                
-                for speaker in sorted(lang_data['speaker'].unique()):
-                    speaker_data = lang_data[lang_data['speaker'] == speaker]
-                    
-                    for vowel in sorted(speaker_data['vowel'].unique()):
-                        vowel_data = speaker_data[speaker_data['vowel'] == vowel]
-                        
-                        if len(vowel_data) >= 3:
-                            color = colors[color_idx % len(colors)]
-                            
-                            # Draw ellipse
-                            ellipse_x, ellipse_y = calculate_confidence_ellipse(
-                                vowel_data['F2'].values,
-                                vowel_data['F1'].values,
-                                n_std=n_std
-                            )
-                            
-                            if ellipse_x is not None:
-                                # Create hierarchical legend group: lang > speaker > individual vowel
-                                fig.add_trace(go.Scatter(
-                                    x=ellipse_x,
-                                    y=ellipse_y,
-                                    mode='lines',
-                                    name=vowel,
-                                    legendgroup=f"{lang}_{speaker}",
-                                    legendgrouptitle=dict(text=f"{lang} - {speaker}"),
-                                    line=dict(color=color, width=2),
-                                    fill='none',
-                                    hoverinfo='name'
-                                ))
-                            
-                            # Optionally show points
-                            if show_points:
-                                fig.add_trace(go.Scatter(
-                                    x=vowel_data['F2'],
-                                    y=vowel_data['F1'],
-                                    mode='markers',
-                                    name=f"{vowel} (points)",
-                                    legendgroup=f"{lang}_{speaker}",
-                                    showlegend=False,
-                                    marker=dict(size=5, color=color, opacity=0.5),
-                                    hovertemplate=f"<b>{vowel}</b><br>Speaker: {speaker}<br>Language: {lang}<br>F1: %{{y:{fmt}}} {scale}<br>F2: %{{x:{fmt}}} {scale}<extra></extra>"
-                                ))
-                            
-                            color_idx += 1
-                            
-        elif has_vowel and has_speaker:
-            # 2-level grouping
-            for speaker in sorted(df['speaker'].unique()):
-                speaker_data = df[df['speaker'] == speaker]
-                
-                for vowel in sorted(speaker_data['vowel'].unique()):
-                    vowel_data = speaker_data[speaker_data['vowel'] == vowel]
-                    
-                    if len(vowel_data) >= 3:
-                        color = colors[color_idx % len(colors)]
-                        
-                        ellipse_x, ellipse_y = calculate_confidence_ellipse(
-                            vowel_data['F2'].values,
-                            vowel_data['F1'].values,
-                            n_std=n_std
-                        )
-                        
-                        if ellipse_x is not None:
-                            fig.add_trace(go.Scatter(
-                                x=ellipse_x,
-                                y=ellipse_y,
-                                mode='lines',
-                                name=vowel,
-                                legendgroup=speaker,
-                                legendgrouptitle=dict(text=speaker),
-                                line=dict(color=color, width=2),
-                                fill='none',
-                                hoverinfo='name'
-                            ))
-                        
-                        if show_points:
-                            fig.add_trace(go.Scatter(
-                                x=vowel_data['F2'],
-                                y=vowel_data['F1'],
-                                mode='markers',
-                                name=f"{vowel} (points)",
-                                legendgroup=speaker,
-                                showlegend=False,
-                                marker=dict(size=5, color=color, opacity=0.5),
-                                hovertemplate=f"<b>{vowel}</b><br>Speaker: {speaker}<br>F1: %{{y:{fmt}}} {scale}<br>F2: %{{x:{fmt}}} {scale}<extra></extra>"
-                            ))
-                        
-                        color_idx += 1
-                        
-        elif has_vowel:
-            # Single-level grouping by vowel
-            for idx, vowel in enumerate(sorted(df['vowel'].unique())):
-                vowel_data = df[df['vowel'] == vowel]
-                
-                if len(vowel_data) >= 3:
-                    color = colors[idx % len(colors)]
-                    
-                    ellipse_x, ellipse_y = calculate_confidence_ellipse(
-                        vowel_data['F2'].values,
-                        vowel_data['F1'].values,
-                        n_std=n_std
-                    )
-                    
-                    if ellipse_x is not None:
-                        fig.add_trace(go.Scatter(
-                            x=ellipse_x,
-                            y=ellipse_y,
-                            mode='lines',
-                            name=vowel,
-                            line=dict(color=color, width=2),
-                            fill='none',
-                            hoverinfo='name'
-                        ))
-                    
-                    if show_points:
-                        fig.add_trace(go.Scatter(
-                            x=vowel_data['F2'],
-                            y=vowel_data['F1'],
-                            mode='markers',
-                            name=f"{vowel} (points)",
-                            showlegend=False,
-                            marker=dict(size=5, color=color, opacity=0.5),
-                            hovertemplate=f"<b>{vowel}</b><br>F1: %{{y:{fmt}}} {scale}<br>F2: %{{x:{fmt}}} {scale}<extra></extra>"
-                        ))
-        
+        n_groups = 1
+
+        if 'vowel' in df.columns:
+            # Colour + shape identify the vowel (ellipse, centre marker, points);
+            # the line dash and the marker fill identify the speaker
+            group_cols = ['native_language', 'speaker'] if 'speaker' in df.columns else []
+            for item in _iter_vowel_groups(df, group_cols):
+                vowel, vowel_data, n_groups = item['vowel'], item['data'], item['n_groups']
+                if len(vowel_data) < 3:
+                    continue
+                color, symbol = item['color'], item['symbol']
+
+                ellipse_x, ellipse_y = calculate_confidence_ellipse(
+                    vowel_data['F2'].values,
+                    vowel_data['F1'].values,
+                    n_std=n_std
+                )
+
+                if ellipse_x is not None:
+                    fig.add_trace(go.Scatter(
+                        x=ellipse_x,
+                        y=ellipse_y,
+                        mode='lines',
+                        name=f"{vowel} (ellipse)",
+                        showlegend=False,
+                        line=dict(color=color, width=2, dash=item['dash']),
+                        fill='none',
+                        hoverinfo='skip',
+                        **_legend_group(item)
+                    ))
+                    # Centre: the vowel's marker and its label. This one-point
+                    # trace is the legend entry, drawn there as line + marker.
+                    mean_f2, mean_f1 = float(vowel_data['F2'].mean()), float(vowel_data['F1'].mean())
+                    fig.add_trace(go.Scatter(
+                        x=[mean_f2],
+                        y=[mean_f1],
+                        mode='lines+markers+text',
+                        name=str(vowel),
+                        line=dict(color=color, width=2, dash=item['dash']),
+                        marker=_vowel_marker(color, symbol, item['fill'], size=13, opacity=1.0),
+                        text=[f'<b>{vowel}</b>'],
+                        textposition='top center',
+                        textfont=dict(color=color, size=14),
+                        hovertemplate=(f"<b>{vowel}</b> (mean of {len(vowel_data)})<br>{item['hover']}"
+                                       f"F1: {mean_f1:{fmt}} {scale}<br>F2: {mean_f2:{fmt}} {scale}<extra></extra>"),
+                        **_legend_group(item)
+                    ))
+
+                # Optionally show points
+                if show_points:
+                    fig.add_trace(go.Scatter(
+                        x=vowel_data['F2'],
+                        y=vowel_data['F1'],
+                        mode='markers',
+                        name=f"{vowel} (points)",
+                        showlegend=False,
+                        marker=_vowel_marker(color, symbol, item['fill'], size=7, opacity=0.55),
+                        hovertemplate=f"<b>{vowel}</b><br>{item['hover']}F1: %{{y:{fmt}}} {scale}<br>F2: %{{x:{fmt}}} {scale}<extra></extra>",
+                        **{k: v for k, v in _legend_group(item).items() if k == 'legendgroup'}
+                    ))
+
         # Inverted axes. The reference window (F2 2700-600 Hz, F1 1200-100 Hz)
         # is converted to the display scale and widened to cover every trace;
         # a window fixed in Hz hides all Bark/ERB/Mel data.
@@ -1423,7 +1262,7 @@ def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True
         # Update layout
         confidence_pct = int(confidence_level * 100)
         fig.update_layout(
-            title=f'Vowel Space with {confidence_pct}% Confidence Ellipses - {scale}<br><sub>Click legend to show/hide • Double-click to isolate</sub>',
+            title=f'Vowel Space with {confidence_pct}% Confidence Ellipses - {scale}<br><sub>{_style_note(n_groups, "Line dash and marker fill")} • Click legend to show/hide • Double-click to isolate</sub>',
             width=1000,
             height=700,
             plot_bgcolor='white',
@@ -1480,6 +1319,7 @@ def create_pca_plot(df_pca, pca_results, scale='Hz'):
         has_language = 'native_language' in df_pca.columns
         
         colors = CUSTOM_COLORS
+        styles = _vowel_styles(df_pca['vowel'].unique()) if has_vowel else {}
         
         if has_vowel and has_speaker and has_language:
             # 3-level grouping
@@ -1504,7 +1344,7 @@ def create_pca_plot(df_pca, pca_results, scale='Hz'):
                             name=f"{lang} | {speaker} | {vowel}",
                             legendgroup=lang,
                             legendgrouptitle=dict(text=lang),
-                            marker=dict(size=10, color=colors[color_idx % len(colors)], opacity=0.7),
+                            marker=_vowel_marker(*styles[vowel]),
                             text=hover_text,
                             hoverinfo='text'
                         ))
@@ -1523,7 +1363,7 @@ def create_pca_plot(df_pca, pca_results, scale='Hz'):
                     y=vowel_data['PC2'],
                     mode='markers',
                     name=vowel,
-                    marker=dict(size=10, color=colors[idx % len(colors)], opacity=0.7),
+                    marker=_vowel_marker(*styles[vowel]),
                     text=hover_text,
                     hoverinfo='text'
                 ))
@@ -1599,6 +1439,7 @@ def create_lda_plot(df_lda, lda_results, group_by='vowel', scale='Hz'):
         colors = CUSTOM_COLORS
         
         if group_by in df_lda.columns:
+            styles = _vowel_styles(df_lda[group_by].unique())
             for idx, group in enumerate(sorted(df_lda[group_by].unique())):
                 group_data = df_lda[df_lda[group_by] == group]
                 
@@ -1612,7 +1453,7 @@ def create_lda_plot(df_lda, lda_results, group_by='vowel', scale='Hz'):
                     y=group_data['LD2'],
                     mode='markers',
                     name=str(group),
-                    marker=dict(size=10, color=colors[idx % len(colors)], opacity=0.7),
+                    marker=_vowel_marker(*styles[group]),
                     text=hover_text,
                     hoverinfo='text'
                 ))
@@ -2034,7 +1875,11 @@ def create_scatter_matrix(df, color_by='vowel'):
                 df,
                 dimensions=dimensions,
                 color=color_column,
-                title=f'Scatter Matrix (colored by {color_by})',
+                symbol=color_column,
+                color_discrete_sequence=CUSTOM_COLORS,
+                symbol_sequence=VOWEL_SYMBOLS,
+                category_orders={color_column: sorted(df[color_column].dropna().unique(), key=str)},
+                title=f'Scatter Matrix (colour + marker shape = {color_by})',
                 height=800,
                 width=800,
                 opacity=0.7
