@@ -663,3 +663,50 @@ footer {
     border-radius: 4px;
     font-size: 0.95em;
 }
+
+/* Files kept on the server for the logged-in user */
+.stored-files {
+    margin-top: 12px;
+    padding: 14px 16px;
+    background: #f3f4fd;
+    border: 1px solid #c9d2f7;
+    border-radius: 8px;
+}
+
+.stored-files-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-weight: 600;
+}
+
+.stored-files-names {
+    margin: 8px 0;
+    color: #555;
+    font-size: 0.92em;
+    word-break: break-all;
+}
+
+.btn-danger {
+    padding: 8px 16px;
+    border: 2px solid #c0392b;
+    border-radius: 8px;
+    background: white;
+    color: #c0392b;
+    font-size: 0.95em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.btn-danger:hover:not(:disabled) {
+    background: #c0392b;
+    color: white;
+}
+
+.btn-danger:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}

@@ -119,13 +119,30 @@ sudo journalctl -u vowelspace -f     # 로그
 - **로그아웃**: 화면 오른쪽 위의 `Log out` 버튼.
 - **저장 위치** (`instance/`, git에 올라가지 않음): `users.db`(계정, 비밀번호는 해시만 저장), `secret_key`(세션 서명 키; 처음 시작할 때 자동 생성되며 환경 변수 `FLASK_SECRET_KEY`가 있으면 그 값을 씁니다).
 - 세션 쿠키는 HTTPS 전용(`Secure`)입니다. HTTP로 로컬에서 시험할 때는 `FLASK_DEBUG=1`로 실행하세요.
-- WAV/TextGrid에서 추출한 데이터(CSV 다운로드)는 사용자별로 따로 저장되어 다른 사용자의 결과와 섞이지 않습니다.
+- 업로드한 파일과 추출 결과는 사용자별 폴더에 따로 저장되어 다른 사용자의 것과 섞이지 않습니다(아래 「업로드 파일 보관과 삭제」 참고).
 - 비밀번호 찾기 기능은 없습니다. 비밀번호를 잊은 계정은 관리자가 서버에서 다시 설정합니다:
 
 ```bash
 cd /var/www/app/vowelspace
 .venv/bin/python -c "from app import app; from auth import db, find_user; app.app_context().push(); u = find_user('사용자명'); u.set_password('새 비밀번호'); db.session.commit()"
 ```
+
+## 🗂️ 업로드 파일 보관과 삭제
+
+업로드한 파일은 사용자별 전용 폴더(`uploads/user<ID>/`)에 보관되며, **`Delete uploaded files` 버튼을 누를 때까지 서버에 남습니다.** 그래서 한 번 올린 뒤에는 파일을 다시 고르지 않고 옵션(그래프 종류, 척도, 포먼트 ceiling, 기본 모음 필터 등)만 바꿔 `Visualize`를 반복해서 누를 수 있습니다.
+
+- **다시 그리기**: 파일을 고르지 않고 `Visualize`를 누르면 서버에 있는 파일로 그립니다. 파일 선택란 아래에 서버에 있는 파일 목록과 용량이 표시됩니다.
+- **교체**: 새 파일을 골라 `Visualize`를 누르면 이전 파일 전체가 새 파일로 바뀝니다.
+- **삭제**: `🗑️ Delete uploaded files`를 누르면 올린 파일과 거기서 추출한 데이터(CSV 포함)가 모두 지워집니다. `Start Over`는 화면과 옵션만 초기화하고 파일은 지우지 않습니다.
+- **측정값 캐시**: WAV/TextGrid의 포먼트 측정 결과는 ceiling 설정별로 저장해 두므로, 척도나 그래프 종류만 바꿀 때는 음성을 다시 분석하지 않아 바로 그려집니다. ceiling 설정을 바꾸면 그 설정으로 한 번 다시 측정합니다.
+- **자동 만료**: 7일 동안 쓰지 않은 폴더는 자동으로 삭제됩니다(다른 요청이 들어올 때 정리). 기간은 환경 변수 `UPLOAD_RETENTION_DAYS`로 바꿀 수 있고 `0`이면 자동 삭제를 끕니다.
+- WAV와 TextGrid의 짝이 맞지 않는 업로드는 어떤 설정으로도 분석할 수 없으므로 오류와 함께 바로 삭제됩니다.
+- 한글 파일명도 그대로 쓸 수 있습니다.
+
+| 경로 | 내용 |
+|------|------|
+| `uploads/user<ID>/files/` | 마지막으로 올린 파일 |
+| `uploads/user<ID>/cache/` | 측정값 캐시, 다운로드용 `last_extracted_data.csv`, `last_metadata.json` |
 
 ## 🤖 자동 컬럼 감지
 
@@ -457,6 +474,7 @@ SP02,ai,1,1.00,350,2250,2760
 vowelspace/
 ├── app.py                          # Flask 메인 애플리케이션
 ├── auth.py                         # 계정(회원가입·로그인·로그아웃), 전 경로 로그인 필수
+├── workspace.py                    # 사용자별 업로드 폴더(보관·삭제·캐시·자동 만료)
 ├── requirements.txt                # Python 의존성 패키지
 ├── README.md                       # 이 파일
 ├── AUTO_COLUMN_DETECTION_GUIDE.md  # 자동 컬럼 감지 상세 가이드
@@ -493,7 +511,7 @@ vowelspace/
 파일을 업로드하고 시각화를 생성합니다.
 
 **Parameters:**
-- `files`: 업로드할 파일(들)
+- `files`: 업로드할 파일(들). 생략하면 서버에 보관 중인 내 파일을 다시 사용합니다(보내면 보관 파일을 교체).
 - `viz_type`: 시각화 유형 (`static`, `dynamic`, `trajectory_time`, `ellipse`)
 - `show_ellipses`: 타원 표시 여부 (boolean)
 - `show_points`: 개별 데이터 포인트 표시 여부 (boolean)
@@ -548,6 +566,14 @@ vowelspace/
   "column_detection": {...}
 }
 ```
+
+### GET `/files`
+
+서버에 보관 중인 내 파일 목록을 돌려줍니다: `{"count": 2, "total_size": 123456, "files": [{"name": "spk01_t01.wav", "size": 120000}, …], "retention_days": 7}`.
+
+### POST `/delete-files`
+
+내 업로드 파일과 거기서 추출한 데이터를 모두 삭제합니다. `/analyze`도 `/upload`와 같이 `files`를 생략하면 보관 중인 파일로 분석합니다.
 
 ### GET `/example`
 

@@ -95,6 +95,14 @@
                                 <span class="file-upload-text" id="fileUploadText">No file selected</span>
                             </label>
                         </div>
+                        <div class="stored-files" id="storedFiles" style="display: none;">
+                            <div class="stored-files-head">
+                                <span id="storedFilesSummary"></span>
+                                <button type="button" id="deleteFilesBtn" class="btn-danger">🗑️ Delete uploaded files</button>
+                            </div>
+                            <p class="stored-files-names" id="storedFilesNames"></p>
+                            <p class="help-text">These files stay on the server until you press <strong>Delete uploaded files</strong>, so you can change the options above and press <strong>Visualize</strong> again without uploading. Choosing new files replaces them. Files left unused for <span id="retentionDays">7</span> days are deleted automatically.</p>
+                        </div>
                         <div class="file-info">
                             <p><strong>Supported Formats:</strong></p>
                             <ul>
@@ -336,21 +344,90 @@ a,700,1200,1.5</pre>
         const limitBasicVowels = document.getElementById('limitBasicVowels');
 
         let currentPlot = null;
-        let currentFiles = null;
+        let storedFileCount = 0;   // files of this user kept on the server
 
-        // File input change handler to update text
-        fileInput.addEventListener('change', function() {
-            const fileUploadText = document.getElementById('fileUploadText');
-            if (this.files.length > 0) {
-                if (this.files.length === 1) {
-                    fileUploadText.textContent = this.files[0].name;
-                } else {
-                    fileUploadText.textContent = `${this.files.length} files selected`;
-                }
+        const storedFilesBox = document.getElementById('storedFiles');
+        const deleteFilesBtn = document.getElementById('deleteFilesBtn');
+        const fileUploadText = document.getElementById('fileUploadText');
+
+        function formatSize(bytes) {
+            if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+            if (bytes >= 1024) return Math.round(bytes / 1024) + ' KB';
+            return bytes + ' B';
+        }
+
+        // Show which files are kept on the server (and the delete button)
+        function showStoredFiles(info) {
+            storedFileCount = info && info.count ? info.count : 0;
+            if (!storedFileCount) {
+                storedFilesBox.style.display = 'none';
+            } else {
+                document.getElementById('storedFilesSummary').textContent =
+                    `📂 ${storedFileCount} file${storedFileCount === 1 ? '' : 's'} on the server (${formatSize(info.total_size)})`;
+                const names = info.files.map(f => f.name);
+                const shown = names.slice(0, 12).join(', ');
+                document.getElementById('storedFilesNames').textContent =
+                    names.length > 12 ? `${shown}, … and ${names.length - 12} more` : shown;
+                document.getElementById('retentionDays').textContent = info.retention_days;
+                storedFilesBox.style.display = 'block';
+            }
+            updateFileText();
+        }
+
+        function updateFileText() {
+            const n = fileInput.files.length;
+            if (n === 1) {
+                fileUploadText.textContent = fileInput.files[0].name;
+            } else if (n > 1) {
+                fileUploadText.textContent = `${n} files selected`;
+            } else if (storedFileCount) {
+                fileUploadText.textContent = 'Using the files on the server (choose files to replace them)';
             } else {
                 fileUploadText.textContent = 'No file selected';
             }
+        }
+
+        async function refreshStoredFiles() {
+            try {
+                const response = await fetch('/files');
+                if (response.ok) {
+                    showStoredFiles(await response.json());
+                }
+            } catch (error) {
+                // the list is informative only; the next request reports real problems
+            }
+        }
+
+        deleteFilesBtn.addEventListener('click', async () => {
+            if (!confirm('Delete all files you uploaded (and the data extracted from them) from the server?')) {
+                return;
+            }
+            deleteFilesBtn.disabled = true;
+            try {
+                const response = await fetch('/delete-files', { method: 'POST' });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    fileInput.value = '';
+                    showStoredFiles(data.stored_files);
+                    hideResult();
+                    hideError();
+                    hideAnalysis();
+                    analyzeBtn.style.display = 'none';
+                    document.getElementById('downloadCsvBtn').style.display = 'none';
+                } else {
+                    showError(data.error || 'The files could not be deleted.');
+                }
+            } catch (error) {
+                showError('An error occurred while communicating with the server: ' + error.message);
+            } finally {
+                deleteFilesBtn.disabled = false;
+            }
         });
+
+        refreshStoredFiles();
+
+        // File input change handler to update text
+        fileInput.addEventListener('change', updateFileText);
 
         // Tab switching functionality
         document.querySelectorAll('.tab-button').forEach(button => {
@@ -388,8 +465,10 @@ a,700,1200,1.5</pre>
         uploadForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             
+            // Newly chosen files are uploaded (replacing the stored ones);
+            // otherwise the files already on the server are plotted again.
             const files = fileInput.files;
-            if (files.length === 0) {
+            if (files.length === 0 && storedFileCount === 0) {
                 showError('Please select a file.');
                 return;
             }
@@ -412,9 +491,6 @@ a,700,1200,1.5</pre>
                 formData.append('show_points', document.getElementById('showPoints').checked ? 'true' : 'false');
             }
 
-            // Store files for later analysis
-            currentFiles = files;
-
             showLoading(true);
             hideError();
             hideResult();
@@ -429,12 +505,14 @@ a,700,1200,1.5</pre>
                 const data = await response.json();
 
                 if (response.ok && data.success) {
+                    // The files are on the server now: later changes of the
+                    // options re-use them instead of uploading again
+                    fileInput.value = '';
                     showResult(data);
                     
                     // Show analyze button if data has required columns
-                    if (data.data_summary && data.data_summary.column_detection) {
-                        analyzeBtn.style.display = 'inline-block';
-                    }
+                    analyzeBtn.style.display =
+                        (data.data_summary && data.data_summary.column_detection) ? 'inline-block' : 'none';
                 } else {
                     showError(data.error || 'An error occurred while processing the file.');
                 }
@@ -442,6 +520,7 @@ a,700,1200,1.5</pre>
                 showError('An error occurred while communicating with the server: ' + error.message);
             } finally {
                 showLoading(false);
+                refreshStoredFiles();
             }
         });
 
@@ -506,22 +585,22 @@ a,700,1200,1.5</pre>
             hideAnalysis();
             uploadForm.reset();
             fileInput.value = '';
-            currentFiles = null;
+            ellipseOptions.style.display = 'none';
+            customCeilingInput.style.display = 'none';
+            ceilingCriterionGroup.style.display = 'block';
             analyzeBtn.style.display = 'none';
             downloadCsvBtn.style.display = 'none';
+            refreshStoredFiles();   // uploaded files stay until "Delete uploaded files"
         });
 
         analyzeBtn.addEventListener('click', async () => {
-            if (!currentFiles || currentFiles.length === 0) {
+            if (storedFileCount === 0) {
                 showError('There is no file to analyze.');
                 return;
             }
 
+            // The analysis runs on the files stored on the server
             const formData = new FormData();
-            for (let file of currentFiles) {
-                formData.append('files', file);
-            }
-            
             // Add formant scale
             formData.append('formant_scale', document.getElementById('formantScale').value);
             formData.append('limit_basic_vowels', limitBasicVowels.checked ? 'true' : 'false');

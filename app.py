@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify, send_file
 from flask_login import current_user
 import os
-from werkzeug.utils import secure_filename
+import functools
 from werkzeug.middleware.proxy_fix import ProxyFix
 import json
 import traceback
@@ -35,6 +35,7 @@ from utils.visualizer import (
 from utils.statistics import perform_comprehensive_analysis
 from utils.formant_scales import convert_formants, get_scale_label, get_available_scales
 from auth import init_auth
+from workspace import Workspace, purge_expired
 
 CORE_VOWEL_DISPLAY_INFO = {
     'english_ipa': sorted(CORE_VOWELS_ENGLISH_IPA),
@@ -156,10 +157,106 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 init_auth(app)
 
 
-def user_file(name):
-    """Path of a per-user result file (kept apart so users never get each other's data)."""
-    stem, ext = os.path.splitext(name)
-    return os.path.join(app.config['UPLOAD_FOLDER'], f"{stem}_user{current_user.get_id()}{ext}")
+class UploadError(Exception):
+    """A problem with the uploaded files that is reported to the user."""
+
+    def __init__(self, message, status=400):
+        super().__init__(message)
+        self.message = message
+        self.status = status
+
+
+def with_workspace(view):
+    """
+    Run a view with the current user's private upload folder as first argument.
+
+    Requests of one user are serialized, and folders nobody has used for the
+    retention period are removed on the way.
+    """
+    @functools.wraps(view)
+    def wrapper(*args, **kwargs):
+        purge_expired(app.config['UPLOAD_FOLDER'])
+        workspace = Workspace(app.config['UPLOAD_FOLDER'], current_user.get_id())
+        with workspace.locked():
+            workspace.touch()
+            return view(workspace, *args, **kwargs)
+    return wrapper
+
+
+def load_user_data(workspace, ceiling_options=None):
+    """
+    Formant data from the user's stored files.
+
+    Files sent with the request first replace the stored set; a request
+    without files re-uses what is stored, so parameters can be changed without
+    uploading again. WAV/TextGrid measurements are cached per ceiling setting.
+
+    Returns (data, detection_info, metadata, data_source); data may be None or
+    empty when nothing could be read. Raises UploadError for unusable input.
+    """
+    uploads = [f for f in request.files.getlist('files') if f and f.filename]
+    if uploads and not workspace.replace_files(uploads, allowed_file):
+        raise UploadError('File format not allowed.')
+
+    stored = workspace.files()
+    if not stored:
+        raise UploadError('Please select a file.')
+
+    file_types = {f['ext'] for f in stored}
+    spreadsheets = [f for f in stored if f['ext'] in ('csv', 'xlsx', 'xls', 'txt')]
+
+    if spreadsheets:
+        result = process_csv_xlsx(spreadsheets[0]['path'], auto_detect=True)
+        data, detection_info = result if isinstance(result, tuple) else (result, None)
+        return data, detection_info, None, 'csv'
+
+    if 'wav' not in file_types:
+        raise UploadError('Unsupported file combination.')
+
+    wav_files = [f for f in stored if f['ext'] == 'wav']
+    textgrid_files = [f for f in stored if f['ext'] == 'textgrid']
+    wav_basenames = {os.path.splitext(f['name'])[0] for f in wav_files}
+    tg_basenames = {os.path.splitext(f['name'])[0] for f in textgrid_files}
+
+    if len(wav_files) != len(textgrid_files) or wav_basenames != tg_basenames:
+        if len(wav_files) != len(textgrid_files):
+            error_msg = (f'Number of WAV files ({len(wav_files)}) does not match number of TextGrid files '
+                         f'({len(textgrid_files)}). Each WAV file must have a corresponding TextGrid file '
+                         f'with the same basename.')
+        else:
+            error_msg = 'WAV and TextGrid files do not form proper pairs. '
+            missing_tg = wav_basenames - tg_basenames
+            missing_wav = tg_basenames - wav_basenames
+            if missing_tg:
+                error_msg += f'TextGrid files missing for: {", ".join(sorted(missing_tg))}. '
+            if missing_wav:
+                error_msg += f'WAV files missing for: {", ".join(sorted(missing_wav))}.'
+        workspace.delete()   # an unpaired set cannot be analysed with any setting
+        raise UploadError(error_msg)
+
+    mode, fixed_ceiling, criterion, scope = ceiling_options or ('auto', 5500.0, 'f3f4', 'speaker')
+    options = {'mode': mode, 'fixed_ceiling': fixed_ceiling, 'criterion': criterion, 'scope': scope}
+    cached = workspace.load_measurements(options)
+    if cached is not None:
+        data, metadata = cached
+        print(f"Re-using cached formant measurements ({len(data)} rows)")
+        return data, None, metadata, 'wav_textgrid'
+
+    print(f"Processing {len(wav_files)} WAV/TextGrid pairs")
+    by_name = {os.path.splitext(f['name'])[0]: f['path'] for f in textgrid_files}
+    wav_paths = [f['path'] for f in wav_files]
+    textgrid_paths = [by_name[os.path.splitext(f['name'])[0]] for f in wav_files]
+    result = process_wav_textgrid(
+        wav_paths, textgrid_paths,
+        ceiling_mode=mode,
+        fixed_ceiling=fixed_ceiling,
+        ceiling_criterion=criterion,
+        ceiling_scope=scope,
+    )
+    data, metadata = result if isinstance(result, tuple) else (result, None)
+    if data is not None and not data.empty:
+        workspace.save_measurements(options, data, metadata)
+    return data, None, metadata, 'wav_textgrid'
 
 
 def allowed_file(filename):
@@ -230,126 +327,31 @@ def index():
 
 
 @app.route('/upload', methods=['POST'])
-def upload_file():
+@with_workspace
+def upload_file(workspace):
+    """
+    Draw a plot from the user's files.
+
+    With files in the request they replace the stored set; without files the
+    stored set is re-used, so only the parameters need to be sent again.
+    """
     try:
-        if 'files' not in request.files:
-            return jsonify({'error': 'No file was uploaded.'}), 400
-        
-        files = request.files.getlist('files')
         visualization_type = request.form.get('viz_type', 'static')
         show_ellipses = request.form.get('show_ellipses', 'false') == 'true'
         show_points = request.form.get('show_points', 'true') == 'true'
         formant_scale = request.form.get('formant_scale', 'Hz')  # Get scale option
         limit_basic_vowels = request.form.get('limit_basic_vowels', 'false') == 'true'
-        ceiling_mode, fixed_ceiling, ceiling_criterion, ceiling_scope = parse_ceiling_options(request.form)
-        
-        if not files or files[0].filename == '':
-            return jsonify({'error': 'Please select a file.'}), 400
-        
-        uploaded_files = []
-        for file in files:
-            if file and allowed_file(file.filename):
-                filename = secure_filename(file.filename)
-                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                file.save(filepath)
-                uploaded_files.append({
-                    'name': filename,
-                    'path': filepath,
-                    'ext': filename.rsplit('.', 1)[1].lower()
-                })
-        
-        if not uploaded_files:
-            return jsonify({'error': 'File format not allowed.'}), 400
-        
-        # Process files based on type
-        data = None
-        detection_info = None
-        file_types = [f['ext'] for f in uploaded_files]
-        metadata = None
-        
-        if 'csv' in file_types or 'xlsx' in file_types or 'xls' in file_types or 'txt' in file_types:
-            # Process spreadsheet data with auto-detection
-            for f in uploaded_files:
-                if f['ext'] in ['csv', 'xlsx', 'xls', 'txt']:
-                    print(f"Processing file: {f['path']}")  # Debug log
-                    result = process_csv_xlsx(f['path'], auto_detect=True)
-                    
-                    # Handle tuple return (df, detection_info)
-                    if isinstance(result, tuple):
-                        data, detection_info = result
-                    else:
-                        data = result
-                    
-                    print(f"Data shape: {data.shape if data is not None and not data.empty else 'Empty'}")  # Debug log
-                    if detection_info:
-                        print(f"Detected columns: {detection_info['detected']}")
-                    break
-        
-        elif 'wav' in file_types:
-            # Process WAV and TextGrid files
-            wav_files = [f for f in uploaded_files if f['ext'] == 'wav']
-            textgrid_files = [f for f in uploaded_files if f['ext'] in ['textgrid', 'TextGrid']]
-            
-            # Validate that WAV and TextGrid files are paired
-            if len(wav_files) != len(textgrid_files):
-                # Clean up uploaded files
-                for f in uploaded_files:
-                    if os.path.exists(f['path']):
-                        os.remove(f['path'])
-                return jsonify({
-                    'error': f'Number of WAV files ({len(wav_files)}) does not match number of TextGrid files ({len(textgrid_files)}). Each WAV file must have a corresponding TextGrid file with the same basename.'
-                }), 400
-            
-            # Check if basenames match
-            wav_basenames = {os.path.splitext(os.path.basename(f['path']))[0] for f in wav_files}
-            tg_basenames = {os.path.splitext(os.path.basename(f['path']))[0] for f in textgrid_files}
-            
-            if wav_basenames != tg_basenames:
-                missing_tg = wav_basenames - tg_basenames
-                missing_wav = tg_basenames - wav_basenames
-                error_msg = 'WAV and TextGrid files do not form proper pairs. '
-                if missing_tg:
-                    error_msg += f'TextGrid files missing for: {", ".join(missing_tg)}. '
-                if missing_wav:
-                    error_msg += f'WAV files missing for: {", ".join(missing_wav)}.'
-                
-                # Clean up uploaded files
-                for f in uploaded_files:
-                    if os.path.exists(f['path']):
-                        os.remove(f['path'])
-                return jsonify({'error': error_msg}), 400
-            
-            print(f"Processing {len(wav_files)} WAV/TextGrid pairs")
-            wav_paths = [f['path'] for f in wav_files]
-            textgrid_paths = [f['path'] for f in textgrid_files]
-            
-            # Process with metadata extraction
-            result = process_wav_textgrid(
-                wav_paths, textgrid_paths,
-                ceiling_mode=ceiling_mode,
-                fixed_ceiling=fixed_ceiling,
-                ceiling_criterion=ceiling_criterion,
-                ceiling_scope=ceiling_scope,
-            )
-            if isinstance(result, tuple):
-                data, metadata = result
-            else:
-                data = result
-                metadata = None
-            
-            # Store metadata for later download
-            if metadata:
-                import json
-                metadata_path = user_file('last_metadata.json')
-                with open(metadata_path, 'w') as f:
-                    json.dump(metadata, f, indent=2)
-        
-        else:
-            return jsonify({'error': 'Unsupported file combination.'}), 400
-        
+
+        data, detection_info, metadata, data_source = load_user_data(
+            workspace, parse_ceiling_options(request.form))
+
+        if metadata:
+            with open(workspace.cache_path('last_metadata.json'), 'w') as f:
+                json.dump(metadata, f, indent=2)
+
         if data is None or data.empty:
             # Return a user-friendly 400 error instead of 500 for invalid/empty data
-            if 'wav' in file_types:
+            if data_source == 'wav_textgrid':
                 err_msg = 'No vowels could be measured. Each TextGrid needs an interval tier with phone- or vowel-level labels (ARPABET, IPA or romanized Korean); word-level tiers are not used.'
             else:
                 err_msg = 'Data processing failed. Please include F1 and F2 columns or provide numeric columns in reasonable formant ranges (F1: 200–1000 Hz, F2: 800–3000 Hz).'
@@ -370,9 +372,6 @@ def upload_file():
             basic_filter_applied = True
             basic_filter_removed = before_count - len(filtered_data)
             if filtered_data.empty:
-                for f in uploaded_files:
-                    if os.path.exists(f['path']):
-                        os.remove(f['path'])
                 return jsonify({'error': 'No vowels matched the selected filter (IPA: ɑ, eɪ, i, oʊ, u; Korean IPA: a, e, i, o, u).'}), 400
             data = filtered_data
             if basic_filter_removed:
@@ -381,11 +380,11 @@ def upload_file():
             basic_filter_applied = False
         
         # Save extracted data as CSV for WAV/TextGrid processing
-        if 'wav' in file_types:
+        if data_source == 'wav_textgrid':
             # Remove outliers: values beyond ±3 standard deviations per vowel
             data_cleaned = remove_outliers_by_vowel(data)
             
-            csv_path = user_file('last_extracted_data.csv')
+            csv_path = workspace.cache_path('last_extracted_data.csv')
             # Sort by vowel (alphabetically) and then by F1 (ascending)
             data_sorted = data_cleaned.sort_values(by=['vowel', 'F1'], ascending=[True, True])
             data_sorted.to_csv(csv_path, index=False)
@@ -427,18 +426,11 @@ def upload_file():
         if plot_json is None:
             return jsonify({'error': 'Visualization creation failed.'}), 500
         
-        # Clean up uploaded files
-        for f in uploaded_files:
-            if os.path.exists(f['path']):
-                os.remove(f['path'])
-        
-        # Determine data source type
-        data_source = 'wav_textgrid' if 'wav' in file_types else 'csv'
-        
         return jsonify({
             'success': True,
             'plot': plot_json,
             'data_source': data_source,
+            'stored_files': workspace.listing(),
             'data_summary': {
                 'rows': len(data),
                 'vowels': data['vowel'].unique().tolist() if 'vowel' in data.columns else [],
@@ -453,18 +445,13 @@ def upload_file():
             }
         })
     
+    except UploadError as e:
+        return jsonify({'error': e.message}), e.status
+
     except Exception as e:
         print(f"Error in upload: {str(e)}")  # Debug log
         print(traceback.format_exc())  # Full traceback
-        
-        # Clean up uploaded files on error
-        try:
-            for f in uploaded_files:
-                if os.path.exists(f['path']):
-                    os.remove(f['path'])
-        except:
-            pass
-        
+
         return jsonify({'error': f'An error occurred: {str(e)}'}), 500
 
 
@@ -502,52 +489,21 @@ def example_data():
 
 
 @app.route('/analyze', methods=['POST'])
-def analyze_data():
-    """Statistical analysis endpoint"""
+@with_workspace
+def analyze_data(workspace):
+    """Statistical analysis of the user's stored (or newly sent) files"""
     try:
-        if 'files' not in request.files:
-            return jsonify({'success': False, 'error': 'No file uploaded'}), 400
-        
-        files = request.files.getlist('files')
         formant_scale = request.form.get('formant_scale', 'Hz')  # Get scale option
         limit_basic_vowels = request.form.get('limit_basic_vowels', 'false') == 'true'
-        
-        if not files or files[0].filename == '':
-            return jsonify({'success': False, 'error': 'No file selected'}), 400
-        
-        uploaded_files = []
-        for file in files:
-            if file and allowed_file(file.filename):
-                filename = secure_filename(file.filename)
-                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                file.save(filepath)
-                uploaded_files.append({
-                    'name': filename,
-                    'path': filepath,
-                    'ext': filename.rsplit('.', 1)[1].lower()
-                })
-        
-        if not uploaded_files:
-            return jsonify({'success': False, 'error': 'Invalid file format'}), 400
-        
-        # Process files
-        data = None
-        detection_info = None
-        file_types = [f['ext'] for f in uploaded_files]
-        
-        if 'csv' in file_types or 'xlsx' in file_types or 'xls' in file_types or 'txt' in file_types:
-            for f in uploaded_files:
-                if f['ext'] in ['csv', 'xlsx', 'xls', 'txt']:
-                    result = process_csv_xlsx(f['path'], auto_detect=True)
-                    
-                    if isinstance(result, tuple):
-                        data, detection_info = result
-                    else:
-                        data = result
-                    break
-        
+
+        data, detection_info, _metadata, data_source = load_user_data(
+            workspace, parse_ceiling_options(request.form))
+
         if data is None or data.empty:
-            return jsonify({'success': False, 'error': 'Failed to process data'}), 500
+            return jsonify({'success': False, 'error': 'Failed to process data'}), 400
+
+        if data_source == 'wav_textgrid':
+            data = remove_outliers_by_vowel(data)
 
         basic_filter_applied = False
         basic_filter_removed = 0
@@ -557,9 +513,6 @@ def analyze_data():
             basic_filter_applied = True
             basic_filter_removed = before_count - len(filtered_data)
             if filtered_data.empty:
-                for f in uploaded_files:
-                    if os.path.exists(f['path']):
-                        os.remove(f['path'])
                 return jsonify({'success': False, 'error': 'No vowels matched the selected filter (IPA: ɑ, eɪ, i, oʊ, u; Korean IPA: a, e, i, o, u).'}), 400
             data = filtered_data
             if basic_filter_removed:
@@ -673,11 +626,6 @@ def analyze_data():
         analysis_results = convert_to_json_serializable(analysis_results)
         plots = convert_to_json_serializable(plots)
         
-        # Clean up uploaded files
-        for f in uploaded_files:
-            if os.path.exists(f['path']):
-                os.remove(f['path'])
-        
         return jsonify({
             'success': True,
             'analysis': analysis_results,
@@ -690,18 +638,13 @@ def analyze_data():
             }
         })
     
+    except UploadError as e:
+        return jsonify({'success': False, 'error': e.message}), e.status
+
     except Exception as e:
         print(f"Error in analysis: {str(e)}")
         print(traceback.format_exc())
-        
-        # Clean up on error
-        try:
-            for f in uploaded_files:
-                if os.path.exists(f['path']):
-                    os.remove(f['path'])
-        except:
-            pass
-        
+
         return jsonify({'success': False, 'error': f'Analysis failed: {str(e)}'}), 500
 
 
@@ -742,11 +685,27 @@ def download_examples():
         return jsonify({'error': f'Download failed: {str(e)}'}), 500
 
 
+@app.route('/files')
+@with_workspace
+def stored_files(workspace):
+    """Names and sizes of the files the user currently has on the server"""
+    return jsonify(workspace.listing())
+
+
+@app.route('/delete-files', methods=['POST'])
+@with_workspace
+def delete_files(workspace):
+    """Delete the user's uploaded files and everything derived from them"""
+    workspace.delete()
+    return jsonify({'success': True, 'stored_files': workspace.listing()})
+
+
 @app.route('/download-extracted-data')
-def download_extracted_data():
+@with_workspace
+def download_extracted_data(workspace):
     """Download extracted formant data as CSV"""
     try:
-        csv_path = user_file('last_extracted_data.csv')
+        csv_path = workspace.cache_path('last_extracted_data.csv')
         
         if not os.path.exists(csv_path):
             return jsonify({'error': 'No extracted data available. Please upload and analyze WAV/TextGrid files first.'}), 404
