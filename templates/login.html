@@ -1,0 +1,22 @@
+{% extends "auth_base.html" %}
+{% block title %}Log in{% endblock %}
+{% block content %}
+<form method="post">
+    {{ form.hidden_tag() }}
+    {{ field(form.username, autocomplete="username", autofocus=true) }}
+    {{ field(form.password, autocomplete="current-password") }}
+    <div class="form-group">
+        <label for="captcha">{{ form.captcha.label.text }}</label>
+        <div class="captcha-box">{{ num1 }} <span>+</span> {{ num2 }} <span>=</span> <span>?</span></div>
+        {{ form.captcha(type="number", placeholder="Enter the result", autocomplete="off") }}
+        {% for error in form.captcha.errors %}<div class="error-message">{{ error }}</div>{% endfor %}
+    </div>
+    <div class="form-group">{{ form.submit(class="btn") }}</div>
+</form>
+<div class="alt-link">No account yet? <a href="{{ url_for('signup') }}">Sign up</a></div>
+<div class="about">
+    Upload formant tables (CSV/XLSX) or WAV + TextGrid pairs to draw vowel spaces,
+    formant trajectories and confidence ellipses, and to run statistical analyses.
+    An account is required to use the tool.
+</div>
+{% endblock %}

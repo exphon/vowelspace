@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, jsonify, send_file
+from flask_login import current_user
 import os
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -33,6 +34,7 @@ from utils.visualizer import (
 )
 from utils.statistics import perform_comprehensive_analysis
 from utils.formant_scales import convert_formants, get_scale_label, get_available_scales
+from auth import init_auth
 
 CORE_VOWEL_DISPLAY_INFO = {
     'english_ipa': sorted(CORE_VOWELS_ENGLISH_IPA),
@@ -150,6 +152,16 @@ app.config['ALLOWED_EXTENSIONS'] = {'wav', 'TextGrid', 'textgrid', 'csv', 'xlsx'
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 
+# Accounts: every route below requires a logged-in user (see auth.py)
+init_auth(app)
+
+
+def user_file(name):
+    """Path of a per-user result file (kept apart so users never get each other's data)."""
+    stem, ext = os.path.splitext(name)
+    return os.path.join(app.config['UPLOAD_FOLDER'], f"{stem}_user{current_user.get_id()}{ext}")
+
+
 def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
@@ -214,7 +226,7 @@ def summarize_ceiling_info(metadata):
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('index.html', username=current_user.username)
 
 
 @app.route('/upload', methods=['POST'])
@@ -328,7 +340,7 @@ def upload_file():
             # Store metadata for later download
             if metadata:
                 import json
-                metadata_path = os.path.join(app.config['UPLOAD_FOLDER'], 'last_metadata.json')
+                metadata_path = user_file('last_metadata.json')
                 with open(metadata_path, 'w') as f:
                     json.dump(metadata, f, indent=2)
         
@@ -373,7 +385,7 @@ def upload_file():
             # Remove outliers: values beyond ±3 standard deviations per vowel
             data_cleaned = remove_outliers_by_vowel(data)
             
-            csv_path = os.path.join(app.config['UPLOAD_FOLDER'], 'last_extracted_data.csv')
+            csv_path = user_file('last_extracted_data.csv')
             # Sort by vowel (alphabetically) and then by F1 (ascending)
             data_sorted = data_cleaned.sort_values(by=['vowel', 'F1'], ascending=[True, True])
             data_sorted.to_csv(csv_path, index=False)
@@ -734,7 +746,7 @@ def download_examples():
 def download_extracted_data():
     """Download extracted formant data as CSV"""
     try:
-        csv_path = os.path.join(app.config['UPLOAD_FOLDER'], 'last_extracted_data.csv')
+        csv_path = user_file('last_extracted_data.csv')
         
         if not os.path.exists(csv_path):
             return jsonify({'error': 'No extracted data available. Please upload and analyze WAV/TextGrid files first.'}), 404

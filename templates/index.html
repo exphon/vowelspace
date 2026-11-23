@@ -11,6 +11,11 @@
 <body>
     <div class="container">
         <header>
+            <form class="user-bar" method="post" action="{{ url_for('logout') }}">
+                {{ logout_form.hidden_tag() }}
+                <span>👤 {{ username }}</span>
+                <button type="submit">Log out</button>
+            </form>
             <h1>🎙️ Vowel Space Visualizer</h1>
             <p class="subtitle">Vowel Space and Formant Trajectory Visualization Tool</p>
         </header>
@@ -303,6 +308,15 @@ a,700,1200,1.5</pre>
     </div>
 
     <script>
+        // Session expired or logged out elsewhere: API calls answer 401 -> go to the login page
+        const nativeFetch = window.fetch.bind(window);
+        window.fetch = async (...args) => {
+            const response = await nativeFetch(...args);
+            if (response.status === 401) {
+                window.location.href = "{{ url_for('login') }}";
+            }
+            return response;
+        };
         const uploadForm = document.getElementById('uploadForm');
         const fileInput = document.getElementById('fileInput');
         const vizTypeSelect = document.getElementById('vizType');

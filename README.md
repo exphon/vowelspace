@@ -111,6 +111,22 @@ sudo journalctl -u vowelspace -f     # 로그
 
 > 서비스가 등록된 뒤에는 `./run.sh`가 자동으로 `sudo systemctl restart vowelspace`를 실행하고, `./stop.sh`는 `sudo systemctl stop vowelspace`를 실행합니다. 서비스가 없을 때만 nohup 방식으로 직접 띄웁니다.
 
+## 🔐 로그인 (계정)
+
+모든 화면과 API(`/upload`, `/analyze`, `/example`, 다운로드)는 로그인한 사용자만 쓸 수 있습니다. 로그인하지 않고 접속하면 로그인 화면(`/login`)으로 이동하고, API 호출은 `401`(JSON)을 받습니다. KFaligner와 같은 방식(Flask-Login 세션, SQLite 사용자 DB, 폼 CSRF 토큰, 로그인 시 덧셈 보안 문자)입니다.
+
+- **회원가입** (`/signup`): 사용자명(3–80자, 영문·숫자·`_`·`.`·`-`), 이메일, 비밀번호(8자 이상). 가입 후 바로 로그인할 수 있습니다.
+- **로그아웃**: 화면 오른쪽 위의 `Log out` 버튼.
+- **저장 위치** (`instance/`, git에 올라가지 않음): `users.db`(계정, 비밀번호는 해시만 저장), `secret_key`(세션 서명 키; 처음 시작할 때 자동 생성되며 환경 변수 `FLASK_SECRET_KEY`가 있으면 그 값을 씁니다).
+- 세션 쿠키는 HTTPS 전용(`Secure`)입니다. HTTP로 로컬에서 시험할 때는 `FLASK_DEBUG=1`로 실행하세요.
+- WAV/TextGrid에서 추출한 데이터(CSV 다운로드)는 사용자별로 따로 저장되어 다른 사용자의 결과와 섞이지 않습니다.
+- 비밀번호 찾기 기능은 없습니다. 비밀번호를 잊은 계정은 관리자가 서버에서 다시 설정합니다:
+
+```bash
+cd /var/www/app/vowelspace
+.venv/bin/python -c "from app import app; from auth import db, find_user; app.app_context().push(); u = find_user('사용자명'); u.set_password('새 비밀번호'); db.session.commit()"
+```
+
 ## 🤖 자동 컬럼 감지
 
 이 도구는 **지능형 컬럼 감지** 기능을 제공합니다. 다양한 형식의 데이터 파일에서 자동으로 필요한 컬럼을 찾아냅니다.
@@ -440,6 +456,7 @@ SP02,ai,1,1.00,350,2250,2760
 ```
 vowelspace/
 ├── app.py                          # Flask 메인 애플리케이션
+├── auth.py                         # 계정(회원가입·로그인·로그아웃), 전 경로 로그인 필수
 ├── requirements.txt                # Python 의존성 패키지
 ├── README.md                       # 이 파일
 ├── AUTO_COLUMN_DETECTION_GUIDE.md  # 자동 컬럼 감지 상세 가이드

@@ -6,3 +6,4 @@ server.log
 server.pid
 app.log
 uploads/
+instance/
