@@ -3,8 +3,10 @@ Per-user storage for uploaded files.
 
 Each user has one private folder, ``uploads/user<ID>/``:
 
-    files/    the files of the last upload, kept until the user presses
-              "Delete uploaded files" (or uploads a new set, which replaces it)
+    files/    every file the user has uploaded; new uploads are added to it
+              (a file with the same name is replaced), so data sets uploaded
+              at different times can be plotted together. Files stay until
+              the user deletes them, one by one or all at once
     cache/    results derived from those files (formant measurements, the
               CSV offered for download); removed together with the files
 
@@ -66,12 +68,45 @@ class Workspace:
             os.utime(self.root, None)
 
     # -- uploaded files ----------------------------------------------------
-    def replace_files(self, uploads, allowed):
-        """
-        Replace the stored set with ``uploads`` (werkzeug FileStorage objects).
+    # -- upload sets --------------------------------------------------------
+    # Every upload is one "set" (numbered 1, 2, ... with an optional label), so
+    # files added later can be compared with the ones uploaded before.
+    def _sets_path(self):
+        return os.path.join(self.root, 'sets.json')
 
-        The new set is written to a side folder first, so a failed or rejected
-        upload leaves the previous files untouched. Returns the number saved.
+    def _load_sets(self):
+        try:
+            with open(self._sets_path()) as f:
+                sets = json.load(f)
+        except (OSError, ValueError):
+            sets = {}
+        sets.setdefault('files', {})
+        sets.setdefault('labels', {})
+        return sets
+
+    def _save_sets(self, sets):
+        with open(self._sets_path(), 'w') as f:
+            json.dump(sets, f, ensure_ascii=False)
+
+    def file_sets(self):
+        """``{file name: (set number, set label)}`` for every stored file."""
+        sets = self._load_sets()
+        result = {}
+        for f in self.files():
+            number = sets['files'].get(f['name'], 1)   # files from before sets existed
+            result[f['name']] = (number, sets['labels'].get(str(number)) or f'Set {number}')
+        return result
+
+    def add_files(self, uploads, allowed, check=None, label=None):
+        """
+        Add ``uploads`` (werkzeug FileStorage objects) to the stored files.
+        They form a new upload set, named ``label`` if given.
+
+        A file with the same name as a stored one replaces it. The new files
+        are written to a side folder first; ``check(files)`` is then called
+        with the set as it would be afterwards (dicts with name, ext, size)
+        and may raise to reject the upload, in which case the stored files
+        stay untouched. Returns the number of files saved.
         """
         incoming = os.path.join(self.root, 'incoming')
         shutil.rmtree(incoming, ignore_errors=True)
@@ -85,20 +120,48 @@ class Workspace:
                 upload.save(os.path.join(incoming, name))
                 saved += 1
             if saved:
-                shutil.rmtree(self.files_dir, ignore_errors=True)
-                shutil.rmtree(self.cache_dir, ignore_errors=True)
-                os.rename(incoming, self.files_dir)
+                new_names = set(os.listdir(incoming))
+                if check:
+                    after = [f for f in self.files() if f['name'] not in new_names]
+                    after += self._describe(incoming)
+                    check(sorted(after, key=lambda f: f['name']))
+                os.makedirs(self.files_dir, exist_ok=True)
+                sets = self._load_sets()
+                kept = {f['name'] for f in self.files()} - new_names
+                # files stored before sets existed count as set 1
+                numbers = {name: sets['files'].get(name, 1) for name in kept}
+                number = max(numbers.values(), default=0) + 1
+                for name in new_names:
+                    os.replace(os.path.join(incoming, name), os.path.join(self.files_dir, name))
+                    numbers[name] = number
+                used = {str(n) for n in numbers.values()}
+                labels = {n: text for n, text in sets['labels'].items() if n in used and n != str(number)}
+                label = re.sub(r'\s+', ' ', str(label or '')).strip()[:40]
+                if label:
+                    labels[str(number)] = label
+                self._save_sets({'files': numbers, 'labels': labels})
+                shutil.rmtree(self.cache_dir, ignore_errors=True)   # measurements depend on the file set
         finally:
             shutil.rmtree(incoming, ignore_errors=True)
         return saved
 
-    def files(self):
-        """Stored files as dicts with name, path, ext (lower-case) and size."""
-        if not os.path.isdir(self.files_dir):
-            return []
+    def delete_files(self, names):
+        """Remove the stored files with these names. Returns the number removed."""
+        wanted = {safe_filename(n) for n in names}
+        removed = 0
+        for f in self.files():
+            if f['name'] in wanted:
+                os.remove(f['path'])
+                removed += 1
+        if removed:
+            shutil.rmtree(self.cache_dir, ignore_errors=True)
+        return removed
+
+    @staticmethod
+    def _describe(folder):
         result = []
-        for name in sorted(os.listdir(self.files_dir)):
-            path = os.path.join(self.files_dir, name)
+        for name in sorted(os.listdir(folder)):
+            path = os.path.join(folder, name)
             if os.path.isfile(path) and '.' in name:
                 result.append({
                     'name': name,
@@ -108,11 +171,20 @@ class Workspace:
                 })
         return result
 
+    def files(self):
+        """Stored files as dicts with name, path, ext (lower-case) and size."""
+        if not os.path.isdir(self.files_dir):
+            return []
+        return self._describe(self.files_dir)
+
     def listing(self):
         """Names and sizes for the browser (no server paths)."""
         files = self.files()
+        sets = self.file_sets()
         return {
-            'files': [{'name': f['name'], 'size': f['size']} for f in files],
+            'files': [{'name': f['name'], 'size': f['size'],
+                       'set': sets[f['name']][0], 'set_label': sets[f['name']][1]} for f in files],
+            'set_count': len({number for number, _ in sets.values()}),
             'count': len(files),
             'total_size': sum(f['size'] for f in files),
             'retention_days': RETENTION_DAYS,
@@ -123,6 +195,8 @@ class Workspace:
         shutil.rmtree(self.files_dir, ignore_errors=True)
         shutil.rmtree(self.cache_dir, ignore_errors=True)
         shutil.rmtree(os.path.join(self.root, 'incoming'), ignore_errors=True)
+        if os.path.exists(self._sets_path()):
+            os.remove(self._sets_path())
 
     # -- derived results ---------------------------------------------------
     def cache_path(self, name):

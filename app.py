@@ -23,6 +23,7 @@ from utils.visualizer import (
     create_dynamic_formant_trajectory,
     create_formant_time_trajectory,
     create_vowel_space_with_ellipses,
+    create_group_comparison_plot,
     create_pca_plot,
     create_lda_plot,
     create_boxplot,
@@ -147,6 +148,9 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app.config['UPLOAD_FOLDER'] = os.path.join(BASE_DIR, 'uploads')
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file size for WAV/TextGrid
+# Uploads accumulate until the user deletes them; this caps what one user can keep
+MAX_STORED_BYTES = int(float(os.environ.get('UPLOAD_MAX_TOTAL_MB', '500')) * 1024 * 1024)
+SPREADSHEET_EXTS = ('csv', 'xlsx', 'xls', 'txt')
 app.config['ALLOWED_EXTENSIONS'] = {'wav', 'TextGrid', 'textgrid', 'csv', 'xlsx', 'xls', 'txt'}
 
 # Create upload folder if it doesn't exist
@@ -183,64 +187,41 @@ def with_workspace(view):
     return wrapper
 
 
-def load_user_data(workspace, ceiling_options=None):
-    """
-    Formant data from the user's stored files.
+def pairing_problem(files):
+    """Why the WAV/TextGrid files in ``files`` cannot be analysed, or None."""
+    wav = {os.path.splitext(f['name'])[0] for f in files if f['ext'] == 'wav'}
+    textgrid = {os.path.splitext(f['name'])[0] for f in files if f['ext'] == 'textgrid'}
+    if wav == textgrid:
+        return None
+    message = 'Each WAV file needs a TextGrid file with the same name (and the other way round). '
+    if wav - textgrid:
+        message += f'TextGrid missing for: {", ".join(sorted(wav - textgrid))}. '
+    if textgrid - wav:
+        message += f'WAV missing for: {", ".join(sorted(textgrid - wav))}.'
+    return message.strip()
 
-    Files sent with the request first replace the stored set; a request
-    without files re-uses what is stored, so parameters can be changed without
-    uploading again. WAV/TextGrid measurements are cached per ceiling setting.
 
-    Returns (data, detection_info, metadata, data_source); data may be None or
-    empty when nothing could be read. Raises UploadError for unusable input.
-    """
-    uploads = [f for f in request.files.getlist('files') if f and f.filename]
-    if uploads and not workspace.replace_files(uploads, allowed_file):
-        raise UploadError('File format not allowed.')
+def check_stored_set(files):
+    """Reject an upload that would leave unpaired audio or exceed the storage cap."""
+    problem = pairing_problem(files)
+    if problem:
+        raise UploadError(problem + ' Nothing was uploaded; the files already on the server are unchanged.')
+    total = sum(f['size'] for f in files)
+    if total > MAX_STORED_BYTES:
+        raise UploadError(
+            f'These files would bring your stored files to {total / 1048576:.0f} MB; the limit is '
+            f'{MAX_STORED_BYTES / 1048576:.0f} MB. Delete some uploaded files first. Nothing was uploaded.')
 
-    stored = workspace.files()
-    if not stored:
-        raise UploadError('Please select a file.')
 
-    file_types = {f['ext'] for f in stored}
-    spreadsheets = [f for f in stored if f['ext'] in ('csv', 'xlsx', 'xls', 'txt')]
-
-    if spreadsheets:
-        result = process_csv_xlsx(spreadsheets[0]['path'], auto_detect=True)
-        data, detection_info = result if isinstance(result, tuple) else (result, None)
-        return data, detection_info, None, 'csv'
-
-    if 'wav' not in file_types:
-        raise UploadError('Unsupported file combination.')
-
-    wav_files = [f for f in stored if f['ext'] == 'wav']
-    textgrid_files = [f for f in stored if f['ext'] == 'textgrid']
-    wav_basenames = {os.path.splitext(f['name'])[0] for f in wav_files}
-    tg_basenames = {os.path.splitext(f['name'])[0] for f in textgrid_files}
-
-    if len(wav_files) != len(textgrid_files) or wav_basenames != tg_basenames:
-        if len(wav_files) != len(textgrid_files):
-            error_msg = (f'Number of WAV files ({len(wav_files)}) does not match number of TextGrid files '
-                         f'({len(textgrid_files)}). Each WAV file must have a corresponding TextGrid file '
-                         f'with the same basename.')
-        else:
-            error_msg = 'WAV and TextGrid files do not form proper pairs. '
-            missing_tg = wav_basenames - tg_basenames
-            missing_wav = tg_basenames - wav_basenames
-            if missing_tg:
-                error_msg += f'TextGrid files missing for: {", ".join(sorted(missing_tg))}. '
-            if missing_wav:
-                error_msg += f'WAV files missing for: {", ".join(sorted(missing_wav))}.'
-        workspace.delete()   # an unpaired set cannot be analysed with any setting
-        raise UploadError(error_msg)
-
+def load_wav_textgrid(workspace, wav_files, textgrid_files, ceiling_options):
+    """Formant measurements of the stored WAV/TextGrid pairs (cached per ceiling setting)."""
     mode, fixed_ceiling, criterion, scope = ceiling_options or ('auto', 5500.0, 'f3f4', 'speaker')
     options = {'mode': mode, 'fixed_ceiling': fixed_ceiling, 'criterion': criterion, 'scope': scope}
     cached = workspace.load_measurements(options)
     if cached is not None:
         data, metadata = cached
         print(f"Re-using cached formant measurements ({len(data)} rows)")
-        return data, None, metadata, 'wav_textgrid'
+        return data, metadata
 
     print(f"Processing {len(wav_files)} WAV/TextGrid pairs")
     by_name = {os.path.splitext(f['name'])[0]: f['path'] for f in textgrid_files}
@@ -256,7 +237,158 @@ def load_user_data(workspace, ceiling_options=None):
     data, metadata = result if isinstance(result, tuple) else (result, None)
     if data is not None and not data.empty:
         workspace.save_measurements(options, data, metadata)
-    return data, None, metadata, 'wav_textgrid'
+    return data, metadata
+
+
+def save_extracted_csv(workspace, data):
+    """Keep the measured tokens for the "download extracted data" button."""
+    csv_path = workspace.cache_path('last_extracted_data.csv')
+    data = data.drop(columns=['upload_set'], errors='ignore')
+    data.sort_values(by=['vowel', 'F1'], ascending=[True, True]).to_csv(csv_path, index=False)
+    print(f"Extracted data saved to {csv_path} (sorted by vowel and F1)")
+
+
+def combine_datasets(parts):
+    """
+    One table from several data sets (``parts`` is a list of (label, DataFrame)).
+
+    The sets stay distinguishable in the plots: a set without a speaker and
+    without a native_language column gets its file name as speaker, and gaps
+    that appear because only some sets have one of these columns are filled
+    with the file name too (rows without a group value would be dropped from
+    the grouped plots).
+    """
+    frames = []
+    for label, frame in parts:
+        frame = frame.copy()
+        if 'speaker' not in frame.columns and 'native_language' not in frame.columns:
+            frame['speaker'] = label
+        frame['_dataset'] = label
+        frames.append(frame)
+    data = pd.concat(frames, ignore_index=True, sort=False)
+    for column in ('speaker', 'native_language'):
+        if column in data.columns:
+            data[column] = data[column].where(data[column].notna(), data['_dataset'])
+    return data.drop(columns='_dataset')
+
+
+def load_user_data(workspace, ceiling_options=None):
+    """
+    Formant data from all files the user has on the server.
+
+    Files sent with the request are added to the stored set first (a file
+    with the same name is replaced); a request without files re-uses what is
+    stored, so parameters can be changed without uploading again and data
+    sets uploaded at different times are plotted together. Formant tables
+    (CSV/TXT/XLSX) and WAV/TextGrid measurements can be mixed.
+
+    Returns (data, detection_info, metadata, data_source); data may be None or
+    empty when nothing could be read. data_source is 'csv' (tables only),
+    'wav_textgrid' (audio only) or 'mixed'; in the mixed case outliers are
+    already removed from the audio part and its CSV is saved.
+    Raises UploadError for unusable input.
+    """
+    uploads = [f for f in request.files.getlist('files') if f and f.filename]
+    if uploads and not workspace.add_files(uploads, allowed_file, check=check_stored_set,
+                                           label=request.form.get('set_label')):
+        raise UploadError('File format not allowed.')
+
+    stored = workspace.files()
+    if not stored:
+        raise UploadError('Please select a file.')
+
+    problem = pairing_problem(stored)
+    if problem:
+        raise UploadError(problem)
+
+    spreadsheets = [f for f in stored if f['ext'] in SPREADSHEET_EXTS]
+    wav_files = [f for f in stored if f['ext'] == 'wav']
+    textgrid_files = [f for f in stored if f['ext'] == 'textgrid']
+    if not spreadsheets and not wav_files:
+        raise UploadError('Unsupported file combination.')
+
+    # Every row remembers the upload set of its file, so sets can be compared
+    set_labels = {name: label for name, (_, label) in workspace.file_sets().items()}
+    tables, detection_info = [], None
+    for f in spreadsheets:
+        result = process_csv_xlsx(f['path'], auto_detect=True)
+        frame, info = result if isinstance(result, tuple) else (result, None)
+        if frame is None or frame.empty:
+            if len(stored) == 1:
+                return frame, info, None, 'csv'
+            raise UploadError(
+                f'"{f["name"]}" could not be read as formant data (it needs F1 and F2 columns). '
+                f'Delete it from the uploaded files or upload a corrected version.')
+        frame = frame.copy()
+        frame['upload_set'] = set_labels[f['name']]
+        tables.append((os.path.splitext(f['name'])[0], frame))
+        detection_info = detection_info or info
+
+    if not wav_files:
+        if len(tables) == 1:
+            return tables[0][1], detection_info, None, 'csv'
+        return combine_datasets(tables), None, None, 'csv'
+
+    data, metadata = load_wav_textgrid(workspace, wav_files, textgrid_files, ceiling_options)
+    if data is not None and not data.empty and 'file' in data.columns:
+        by_stem = {os.path.splitext(f['name'])[0]: set_labels[f['name']] for f in wav_files}
+        data = data.copy()
+        data['upload_set'] = data['file'].map(by_stem)
+    if not tables:
+        return data, None, metadata, 'wav_textgrid'
+
+    if data is None or data.empty:
+        raise UploadError('No vowels could be measured in the WAV/TextGrid files. Each TextGrid needs an interval '
+                          'tier with phone- or vowel-level labels; delete these files to plot the tables alone.')
+    data = remove_outliers_by_vowel(data)
+    save_extracted_csv(workspace, data)
+    return combine_datasets(tables + [('recordings', data)]), None, metadata, 'mixed'
+
+
+COMPARE_MODES = ('auto', 'set', 'prefix', 'speaker', 'language', 'off')
+COMPARE_TITLES = {'set': 'Upload sets', 'prefix': 'Speaker groups', 'speaker': 'Speakers', 'language': 'Language / group'}
+
+
+def comparison_groups(data, workspace, mode):
+    """
+    Which groups of rows the plot should contrast.
+
+    ``mode`` is one of COMPARE_MODES: 'set' compares the upload sets (files
+    added later against the ones uploaded before), 'prefix' the letters at the
+    start of the speaker ID (fv01, fv02 -> fv; mv01 -> mv), 'speaker' the
+    speakers and 'language' the native_language column; 'auto' compares upload
+    sets when there are at least two; 'off' never compares.
+    Returns (data with a ``compare_group`` column, mode used) or (None, None)
+    when there is nothing to compare.
+    """
+    mode = mode if mode in COMPARE_MODES else 'auto'
+    if mode == 'off' or data is None or data.empty:
+        return None, None
+
+    def from_column(column, transform=None):
+        if column not in data.columns:
+            return None
+        values = data[column].astype(str).where(data[column].notna())
+        return transform(values) if transform else values
+
+    if mode in ('auto', 'set'):
+        mode = 'set'
+        groups = from_column('upload_set')
+        numbers = {label: number for number, label in workspace.file_sets().values()}
+        rank = lambda g: g.map(lambda label: numbers.get(label, 0))
+    elif mode == 'prefix':
+        groups = from_column('speaker', lambda v: v.str.extract(r'^([^\W\d_]+)', expand=False).fillna(v))
+        rank = None
+    else:
+        groups = from_column('speaker' if mode == 'speaker' else 'native_language')
+        rank = None
+
+    if groups is None or groups.nunique(dropna=True) < 2:
+        return None, None
+    data = data.assign(compare_group=groups)
+    data = data[data['compare_group'].notna()]
+    data = data.assign(_rank=rank(data['compare_group']) if rank else data['compare_group'])
+    return data.sort_values('_rank', kind='stable').drop(columns='_rank'), mode
 
 
 def allowed_file(filename):
@@ -326,10 +458,16 @@ def index():
     return render_template('index.html', username=current_user.username)
 
 
+SLIDE_DECKS = {'ko': 'vowelspace.html', 'en': 'vowelspace_en.html'}
+
+
 @app.route('/slides')
-def slides():
-    """Tutorial slides about the tool (slides/vowelspace.html), for logged-in users."""
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'slides', 'vowelspace.html')
+@app.route('/slides/<lang>')
+def slides(lang='ko'):
+    """Tutorial slides about the tool (slides/vowelspace*.html), for logged-in users."""
+    if lang not in SLIDE_DECKS:
+        return 'No slides in this language.', 404
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'slides', SLIDE_DECKS[lang])
     if not os.path.isfile(path):
         return 'The slides are not available on this server.', 404
     return send_file(path, mimetype='text/html', conditional=True)
@@ -341,7 +479,7 @@ def upload_file(workspace):
     """
     Draw a plot from the user's files.
 
-    With files in the request they replace the stored set; without files the
+    Files in the request are added to the stored set first; without files the
     stored set is re-used, so only the parameters need to be sent again.
     """
     try:
@@ -393,17 +531,13 @@ def upload_file(workspace):
             # Remove outliers: values beyond ±3 standard deviations per vowel
             data_cleaned = remove_outliers_by_vowel(data)
             
-            csv_path = workspace.cache_path('last_extracted_data.csv')
-            # Sort by vowel (alphabetically) and then by F1 (ascending)
-            data_sorted = data_cleaned.sort_values(by=['vowel', 'F1'], ascending=[True, True])
-            data_sorted.to_csv(csv_path, index=False)
+            save_extracted_csv(workspace, data_cleaned)
             
             # Log outlier removal stats
             original_count = len(data)
             cleaned_count = len(data_cleaned)
             removed_count = original_count - cleaned_count
             print(f"Outlier removal: {removed_count} points removed ({original_count} → {cleaned_count})")
-            print(f"Extracted data saved to {csv_path} (sorted by vowel and F1)")
             
             # Update data for visualization (use cleaned data)
             data = data_cleaned
@@ -416,9 +550,18 @@ def upload_file(workspace):
         # Create visualization with scale label
         scale_label = get_scale_label(formant_scale)
         
-        if visualization_type == 'static':
+        compared, compare_mode = comparison_groups(data, workspace, request.form.get('compare_by', 'auto'))
+        if compared is not None and visualization_type not in ('static', 'ellipse'):
+            compared, compare_mode = None, None        # trajectories keep the per-vowel colours
+
+        if compared is not None:
+            plot_json = create_group_comparison_plot(
+                compared, scale=scale_label, show_points=show_points,
+                ellipses=(visualization_type == 'ellipse' or show_ellipses),
+                group_title=COMPARE_TITLES[compare_mode])
+        elif visualization_type == 'static':
             if show_ellipses:
-                plot_json = create_vowel_space_with_ellipses(data, confidence_level=0.95, show_points=show_points, scale=scale_label)
+                plot_json = create_vowel_space_with_ellipses(data, n_std=1.0, show_points=show_points, scale=scale_label)
             else:
                 plot_json = create_static_vowel_space(data, scale=scale_label)
         elif visualization_type == 'dynamic':
@@ -428,7 +571,7 @@ def upload_file(workspace):
             if plot_json is None:
                 return jsonify({'error': 'Formant-over-time plot needs at least two time points per vowel production (a time column with several rows per vowel).'}), 400
         elif visualization_type == 'ellipse':
-            plot_json = create_vowel_space_with_ellipses(data, confidence_level=0.95, show_points=show_points, scale=scale_label)
+            plot_json = create_vowel_space_with_ellipses(data, n_std=1.0, show_points=show_points, scale=scale_label)
         else:
             plot_json = create_static_vowel_space(data, scale=scale_label)
         
@@ -440,6 +583,8 @@ def upload_file(workspace):
             'plot': plot_json,
             'data_source': data_source,
             'stored_files': workspace.listing(),
+            'comparison': ({'by': compare_mode, 'groups': list(dict.fromkeys(compared['compare_group']))}
+                           if compared is not None else None),
             'data_summary': {
                 'rows': len(data),
                 'vowels': data['vowel'].unique().tolist() if 'vowel' in data.columns else [],
@@ -704,9 +849,26 @@ def stored_files(workspace):
 @app.route('/delete-files', methods=['POST'])
 @with_workspace
 def delete_files(workspace):
-    """Delete the user's uploaded files and everything derived from them"""
-    workspace.delete()
-    return jsonify({'success': True, 'stored_files': workspace.listing()})
+    """
+    Delete uploaded files and everything derived from them.
+
+    With ``names`` in the form only those files are deleted (a WAV and its
+    TextGrid always go together, because one is useless without the other);
+    without ``names`` all files of the user are deleted.
+    """
+    names = [n for n in request.form.getlist('names') if n]
+    if not names:
+        workspace.delete()
+        return jsonify({'success': True, 'stored_files': workspace.listing()})
+
+    stored = workspace.files()
+    wanted = {f['name'] for f in stored if f['name'] in names}
+    paired_stems = {os.path.splitext(f['name'])[0] for f in stored
+                    if f['name'] in wanted and f['ext'] in ('wav', 'textgrid')}
+    wanted |= {f['name'] for f in stored
+               if f['ext'] in ('wav', 'textgrid') and os.path.splitext(f['name'])[0] in paired_stems}
+    removed = workspace.delete_files(wanted)
+    return jsonify({'success': True, 'removed': removed, 'stored_files': workspace.listing()})
 
 
 @app.route('/download-extracted-data')

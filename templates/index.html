@@ -13,8 +13,12 @@
         <header>
             <form class="user-bar" method="post" action="{{ url_for('logout') }}">
                 {{ logout_form.hidden_tag() }}
-                <a class="slides-link" href="{{ url_for('slides') }}" target="_blank" rel="noopener"
-                   title="Tutorial slides (Korean): how to use the tool and read the results">📑 Tutorial slides</a>
+                <span class="slides-links">
+                    <a class="slides-link" href="{{ url_for('slides') }}" target="_blank" rel="noopener"
+                       title="Tutorial slides in Korean: how to use the tool and read the results">📑 Tutorial slides (KOR)</a>
+                    <a class="slides-link" href="{{ url_for('slides', lang='en') }}" target="_blank" rel="noopener"
+                       title="Tutorial slides in English: how to use the tool and read the results">📑 Tutorial slides (ENG)</a>
+                </span>
                 <span>👤 {{ username }}</span>
                 <button type="submit">Log out</button>
             </form>
@@ -81,6 +85,19 @@
                     </div>
 
                     <div class="form-group">
+                        <label for="compareBy">Compare Groups:</label>
+                        <select id="compareBy" name="compare_by">
+                            <option value="auto" selected>Auto: compare upload sets when files were added later</option>
+                            <option value="set">Upload sets (files added later vs. files uploaded before)</option>
+                            <option value="prefix">Speaker ID letters (fv01, fv02 → fv; mv01 → mv)</option>
+                            <option value="speaker">Speakers</option>
+                            <option value="language">Language / group (2nd part of the file name, or native_language column)</option>
+                            <option value="off">Off: one colour per vowel</option>
+                        </select>
+                        <p class="help-text">In a comparison each <strong>group</strong> gets its own colour, marker fill and line style, with its vowel space shaded; <strong>vowels</strong> are told apart by marker shape and the label at their mean. Applies to the static and ellipse plots.</p>
+                    </div>
+
+                    <div class="form-group">
                         <label>
                             <input type="checkbox" id="limitBasicVowels" name="limit_basic_vowels">
                             Show only vowels a, e, i, o, u
@@ -97,13 +114,18 @@
                                 <span class="file-upload-text" id="fileUploadText">No file selected</span>
                             </label>
                         </div>
+                        <div class="set-label-row">
+                            <label for="setLabel">Name for the files you are adding (optional):</label>
+                            <input type="text" id="setLabel" name="set_label" maxlength="40" placeholder="e.g. Korean women">
+                            <p class="help-text">Each upload is one <strong>set</strong>. The name appears in the legend when sets are compared; without a name the sets are called Set 1, Set 2, …</p>
+                        </div>
                         <div class="stored-files" id="storedFiles" style="display: none;">
                             <div class="stored-files-head">
                                 <span id="storedFilesSummary"></span>
-                                <button type="button" id="deleteFilesBtn" class="btn-danger">🗑️ Delete uploaded files</button>
+                                <button type="button" id="deleteFilesBtn" class="btn-danger">🗑️ Delete all uploaded files</button>
                             </div>
-                            <p class="stored-files-names" id="storedFilesNames"></p>
-                            <p class="help-text">These files stay on the server until you press <strong>Delete uploaded files</strong>, so you can change the options above and press <strong>Visualize</strong> again without uploading. Choosing new files replaces them. Files left unused for <span id="retentionDays">7</span> days are deleted automatically.</p>
+                            <ul class="stored-files-list" id="storedFilesList"></ul>
+                            <p class="help-text"><strong>All of these files are plotted together.</strong> Choosing new files <strong>adds</strong> them (a file with the same name is replaced), so you can overlay data sets uploaded at different times, e.g. two speaker groups. Press <strong>✕</strong> to remove one file, or <strong>Delete all uploaded files</strong> to start from scratch. You can change the options above and press <strong>Visualize</strong> again without uploading. Files left unused for <span id="retentionDays">7</span> days are deleted automatically.</p>
                         </div>
                         <div class="file-info">
                             <p><strong>Supported Formats:</strong></p>
@@ -366,14 +388,80 @@ a,700,1200,1.5</pre>
             } else {
                 document.getElementById('storedFilesSummary').textContent =
                     `📂 ${storedFileCount} file${storedFileCount === 1 ? '' : 's'} on the server (${formatSize(info.total_size)})`;
-                const names = info.files.map(f => f.name);
-                const shown = names.slice(0, 12).join(', ');
-                document.getElementById('storedFilesNames').textContent =
-                    names.length > 12 ? `${shown}, … and ${names.length - 12} more` : shown;
+                renderStoredFileList(info.files);
                 document.getElementById('retentionDays').textContent = info.retention_days;
                 storedFilesBox.style.display = 'block';
             }
             updateFileText();
+        }
+
+        // One row per data set: a WAV and its TextGrid count as one, other files stand alone
+        function renderStoredFileList(files) {
+            const list = document.getElementById('storedFilesList');
+            list.textContent = '';
+            const items = new Map();
+            for (const f of files) {
+                const dot = f.name.lastIndexOf('.');
+                const ext = f.name.slice(dot + 1).toLowerCase();
+                const audio = ext === 'wav' || ext === 'textgrid';
+                const key = audio ? 'audio:' + f.name.slice(0, dot) : 'file:' + f.name;
+                if (!items.has(key)) {
+                    items.set(key, { label: audio ? f.name.slice(0, dot) : f.name, names: [], size: 0, audio,
+                                     set: f.set, setLabel: f.set_label });
+                }
+                const item = items.get(key);
+                item.names.push(f.name);
+                item.size += f.size;
+            }
+            for (const item of items.values()) {
+                const row = document.createElement('li');
+                const badge = document.createElement('span');
+                badge.className = 'stored-file-set set-' + ((item.set - 1) % 6);
+                badge.textContent = item.setLabel;
+                badge.title = 'Upload set ' + item.set;
+                const name = document.createElement('span');
+                name.className = 'stored-file-name';
+                name.textContent = item.audio ? `${item.label} (WAV + TextGrid)` : item.label;
+                const size = document.createElement('span');
+                size.className = 'stored-file-size';
+                size.textContent = formatSize(item.size);
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.className = 'stored-file-remove';
+                remove.textContent = '✕';
+                remove.title = `Remove ${item.label} from the server`;
+                remove.setAttribute('aria-label', remove.title);
+                remove.addEventListener('click', () => deleteStoredFiles(item.names, remove));
+                row.append(badge, name, size, remove);
+                list.append(row);
+            }
+        }
+
+        // Delete some files (names given) or all of them (names omitted)
+        async function deleteStoredFiles(names, button) {
+            button.disabled = true;
+            try {
+                const body = new FormData();
+                (names || []).forEach(n => body.append('names', n));
+                const response = await fetch('/delete-files', { method: 'POST', body });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    if (!names) fileInput.value = '';
+                    showStoredFiles(data.stored_files);
+                    // the plot on screen no longer matches the files on the server
+                    hideResult();
+                    hideError();
+                    hideAnalysis();
+                    analyzeBtn.style.display = 'none';
+                    document.getElementById('downloadCsvBtn').style.display = 'none';
+                } else {
+                    showError(data.error || 'The files could not be deleted.');
+                }
+            } catch (error) {
+                showError('An error occurred while communicating with the server: ' + error.message);
+            } finally {
+                button.disabled = false;
+            }
         }
 
         function updateFileText() {
@@ -383,7 +471,7 @@ a,700,1200,1.5</pre>
             } else if (n > 1) {
                 fileUploadText.textContent = `${n} files selected`;
             } else if (storedFileCount) {
-                fileUploadText.textContent = 'Using the files on the server (choose files to replace them)';
+                fileUploadText.textContent = 'Using the files on the server (choose files to add more)';
             } else {
                 fileUploadText.textContent = 'No file selected';
             }
@@ -400,29 +488,9 @@ a,700,1200,1.5</pre>
             }
         }
 
-        deleteFilesBtn.addEventListener('click', async () => {
-            if (!confirm('Delete all files you uploaded (and the data extracted from them) from the server?')) {
-                return;
-            }
-            deleteFilesBtn.disabled = true;
-            try {
-                const response = await fetch('/delete-files', { method: 'POST' });
-                const data = await response.json();
-                if (response.ok && data.success) {
-                    fileInput.value = '';
-                    showStoredFiles(data.stored_files);
-                    hideResult();
-                    hideError();
-                    hideAnalysis();
-                    analyzeBtn.style.display = 'none';
-                    document.getElementById('downloadCsvBtn').style.display = 'none';
-                } else {
-                    showError(data.error || 'The files could not be deleted.');
-                }
-            } catch (error) {
-                showError('An error occurred while communicating with the server: ' + error.message);
-            } finally {
-                deleteFilesBtn.disabled = false;
+        deleteFilesBtn.addEventListener('click', () => {
+            if (confirm('Delete all files you uploaded (and the data extracted from them) from the server?')) {
+                deleteStoredFiles(null, deleteFilesBtn);
             }
         });
 
@@ -467,8 +535,8 @@ a,700,1200,1.5</pre>
         uploadForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             
-            // Newly chosen files are uploaded (replacing the stored ones);
-            // otherwise the files already on the server are plotted again.
+            // Newly chosen files are added to the ones on the server as a new upload set;
+            // without files, the files already on the server are plotted again.
             const files = fileInput.files;
             if (files.length === 0 && storedFileCount === 0) {
                 showError('Please select a file.');
@@ -482,6 +550,10 @@ a,700,1200,1.5</pre>
             formData.append('viz_type', document.getElementById('vizType').value);
             formData.append('formant_scale', document.getElementById('formantScale').value);
             formData.append('limit_basic_vowels', limitBasicVowels.checked ? 'true' : 'false');
+            formData.append('compare_by', document.getElementById('compareBy').value);
+            if (files.length > 0) {
+                formData.append('set_label', document.getElementById('setLabel').value);
+            }
             formData.append('formant_ceiling', document.getElementById('formantCeiling').value);
             formData.append('custom_ceiling', document.getElementById('customCeiling').value);
             formData.append('ceiling_criterion', document.getElementById('ceilingCriterion').value);
@@ -510,6 +582,7 @@ a,700,1200,1.5</pre>
                     // The files are on the server now: later changes of the
                     // options re-use them instead of uploading again
                     fileInput.value = '';
+                    document.getElementById('setLabel').value = '';   // the name belongs to the files just uploaded
                     showResult(data);
                     
                     // Show analyze button if data has required columns
@@ -632,7 +705,7 @@ a,700,1200,1.5</pre>
 
         function showResult(data) {
             // Check if this is WAV/TextGrid data (has extracted data available)
-            const isWavData = data.data_source === 'wav_textgrid';
+            const isWavData = data.data_source === 'wav_textgrid' || data.data_source === 'mixed';
             const downloadCsvBtn = document.getElementById('downloadCsvBtn');
             
             if (isWavData) {

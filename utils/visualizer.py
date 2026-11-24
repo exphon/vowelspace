@@ -163,13 +163,13 @@ def _filter_korean_diphthongs(df):
     return df
 
 
-def calculate_ellipse(x, y, n_std=2.0, n_points=100):
+def calculate_ellipse(x, y, n_std=1.0, n_points=100):
     """
     Calculate confidence ellipse for 2D data
     
     Args:
         x, y: Data points
-        n_std: Number of standard deviations (2.0 for ~95% confidence)
+        n_std: Semi-axis length in standard deviations along each principal axis (1.0 = 1 SD ellipse)
         n_points: Number of points to draw the ellipse
     
     Returns:
@@ -188,8 +188,8 @@ def calculate_ellipse(x, y, n_std=2.0, n_points=100):
     angle = np.arctan2(eigenvectors[1, 0], eigenvectors[0, 0])
     
     # Calculate width and height
-    width = 2 * n_std * np.sqrt(eigenvalues[0])
-    height = 2 * n_std * np.sqrt(eigenvalues[1])
+    width = n_std * np.sqrt(eigenvalues[0])    # semi-axes
+    height = n_std * np.sqrt(eigenvalues[1])
     
     # Generate ellipse points
     t = np.linspace(0, 2 * np.pi, n_points)
@@ -1091,14 +1091,17 @@ def create_vowel_space_with_ellipses(df, confidence=0.95, show_points=True):
         return None
 
 
-def calculate_confidence_ellipse(x, y, n_std=2.0, n_points=100):
+def calculate_confidence_ellipse(x, y, n_std=1.0, n_points=100):
     """
-    Calculate confidence ellipse for 2D data points
+    Data ellipse of 2D points: centred on the mean, oriented along the principal
+    axes of the covariance matrix, with semi-axes of n_std standard deviations.
+    A 1 SD ellipse covers about 39% of a bivariate normal distribution
+    (2 SD about 86%, 2.45 SD 95%).
     
     Args:
         x: array of x coordinates (F2 values)
         y: array of y coordinates (F1 values)
-        n_std: number of standard deviations (default 2.0 for ~95% confidence)
+        n_std: semi-axis length in standard deviations (default 1.0)
         n_points: number of points to use for ellipse perimeter
     
     Returns:
@@ -1123,8 +1126,8 @@ def calculate_confidence_ellipse(x, y, n_std=2.0, n_points=100):
     # Calculate ellipse angle
     angle = np.degrees(np.arctan2(*eigenvectors[:, 0][::-1]))
     
-    # Width and height are the eigenvalues scaled by n_std
-    width, height = 2 * n_std * np.sqrt(eigenvalues)
+    # Semi-axes: standard deviation along each principal axis, scaled by n_std
+    width, height = n_std * np.sqrt(eigenvalues)
     
     # Generate ellipse points
     theta = np.linspace(0, 2 * np.pi, n_points)
@@ -1146,13 +1149,13 @@ def calculate_confidence_ellipse(x, y, n_std=2.0, n_points=100):
     return ellipse_x, ellipse_y
 
 
-def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True, scale='Hz'):
+def create_vowel_space_with_ellipses(df, n_std=1.0, show_points=True, scale='Hz'):
     """
     Create vowel space visualization with confidence ellipses
     
     Args:
         df: DataFrame with F1, F2, and optionally vowel, speaker, native_language
-        confidence_level: confidence level for ellipses (0.95 = 95%)
+        n_std: size of the ellipses in standard deviations (1.0 = 1 SD ellipses)
         show_points: whether to show individual data points
         scale: Frequency scale label ('Hz', 'Bark', 'ERB', 'Mel')
     
@@ -1170,15 +1173,6 @@ def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True
         return None
 
     try:
-        # Convert confidence level to standard deviations
-        # 95% ≈ 2 std, 99% ≈ 3 std
-        if confidence_level >= 0.99:
-            n_std = 1.0
-        elif confidence_level >= 0.95:
-            n_std = 1.0
-        else:
-            n_std = 1.0
-        
         fig = go.Figure()
         n_groups = 1
 
@@ -1260,9 +1254,9 @@ def create_vowel_space_with_ellipses(df, confidence_level=0.95, show_points=True
         )
         
         # Update layout
-        confidence_pct = int(confidence_level * 100)
+        size_label = f'{n_std:g} SD'
         fig.update_layout(
-            title=f'Vowel Space with {confidence_pct}% Confidence Ellipses - {scale}<br><sub>{_style_note(n_groups, "Line dash and marker fill")} • Click legend to show/hide • Double-click to isolate</sub>',
+            title=f'Vowel Space with {size_label} Ellipses - {scale}<br><sub>{_style_note(n_groups, "Line dash and marker fill")} • Click legend to show/hide • Double-click to isolate</sub>',
             width=1000,
             height=700,
             plot_bgcolor='white',
@@ -2129,3 +2123,138 @@ def create_pairwise_comparison_plot(pairwise_results, scale='Hz'):
         print(traceback.format_exc())
         return None
 
+
+
+# ── Group comparison ───────────────────────────────────────────────────
+# When data sets are compared (e.g. female vs male speakers, or a second
+# upload against the first), the *group* gets the strong visual cues and the
+# vowel is read from the marker shape and the label next to each mean.
+COMPARE_COLORS = ['#1f5fbf', '#e8590c', '#2b8a3e', '#862e9c', '#0b7285', '#a61e4d']
+COMPARE_FILLS = ['', '-open', '-dot', '-open-dot']
+COMPARE_DASHES = ['solid', 'dash', 'dot', 'dashdot']
+COMPARE_LABEL_POS = ['top center', 'bottom center', 'middle left', 'middle right']
+
+
+def _rgba(hex_color, alpha):
+    r, g, b = (int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
+    return f'rgba({r},{g},{b},{alpha})'
+
+
+def _hull_order(points):
+    """Indices of the points on the convex hull, in drawing order (all points if fewer than 3)."""
+    if len(points) < 3:
+        return list(range(len(points)))
+    try:
+        from scipy.spatial import ConvexHull
+        return list(ConvexHull(points).vertices)
+    except Exception:          # e.g. all means on one line
+        return list(range(len(points)))
+
+
+def create_group_comparison_plot(df, group_col='compare_group', scale='Hz', ellipses=False,
+                                 show_points=True, n_std=1.0, group_title='Groups'):
+    """
+    Vowel space that contrasts groups of data (speaker groups, upload sets ...).
+
+    Each group has its own colour, marker fill and line style. Within a group
+    the vowels differ in marker shape and are labelled at their mean. The
+    shaded polygon through the vowel means outlines the vowel space of the
+    group; with ``ellipses`` every vowel also gets an ``n_std`` SD ellipse.
+    Speakers inside a group are pooled.
+    """
+    if df is None or df.empty or group_col not in df.columns or 'vowel' not in df.columns:
+        return None
+    df = _filter_korean_diphthongs(df)
+    if df is None or df.empty:
+        return None
+
+    fmt = _value_format(scale)
+    groups = list(dict.fromkeys(df[group_col].dropna().tolist()))      # order of first appearance
+    symbols = {v: sym for v, (_, sym) in _vowel_styles(df['vowel'].unique()).items()}
+    fig = go.Figure()
+    all_x, all_y = [], []
+
+    for gi, group in enumerate(groups):
+        gdata = df[df[group_col] == group]
+        color = COMPARE_COLORS[gi % len(COMPARE_COLORS)]
+        fill = COMPARE_FILLS[gi % len(COMPARE_FILLS)]
+        dash = COMPARE_DASHES[gi % len(COMPARE_DASHES)]
+        is_open = fill.startswith('-open')
+        vowels = sorted(gdata['vowel'].dropna().unique(), key=str)
+        means = gdata.groupby('vowel')[['F1', 'F2']].mean().loc[vowels]
+        counts = gdata.groupby('vowel').size()
+        n_speakers = gdata['speaker'].nunique() if 'speaker' in gdata.columns else 0
+        legend = dict(legendgroup=f'group:{group}')
+        name = f'{group} ({len(gdata)} tokens' + (f', {n_speakers} speakers)' if n_speakers > 1 else ')')
+        all_x += gdata['F2'].tolist()
+        all_y += gdata['F1'].tolist()
+
+        # 1. Vowel space of the group: polygon through the vowel means (shaded)
+        order = _hull_order(means[['F1', 'F2']].values)
+        if len(order) >= 2:
+            px = [means['F2'].iloc[i] for i in order] + [means['F2'].iloc[order[0]]]
+            py = [means['F1'].iloc[i] for i in order] + [means['F1'].iloc[order[0]]]
+            fig.add_trace(go.Scatter(
+                x=px, y=py, mode='lines', name=name, showlegend=False, hoverinfo='skip',
+                line=dict(color=color, width=1.5 if ellipses else 2.5, dash=dash),
+                fill='toself' if len(order) >= 3 else None,
+                fillcolor=_rgba(color, 0.05 if ellipses else 0.13), **legend))
+
+        # 2. Ellipses per vowel
+        if ellipses:
+            for vowel in vowels:
+                vdata = gdata[gdata['vowel'] == vowel]
+                if len(vdata) < 3:
+                    continue
+                ex, ey = calculate_confidence_ellipse(vdata['F2'].values, vdata['F1'].values, n_std=n_std)
+                if ex is None:
+                    continue
+                all_x += list(ex)
+                all_y += list(ey)
+                fig.add_trace(go.Scatter(
+                    x=ex, y=ey, mode='lines', name=name, showlegend=False, hoverinfo='skip',
+                    line=dict(color=color, width=2.2, dash=dash),
+                    fill='toself', fillcolor=_rgba(color, 0.12), **legend))
+
+        # 3. Tokens
+        if show_points:
+            for vowel in vowels:
+                vdata = gdata[gdata['vowel'] == vowel]
+                hover = [f"<b>{vowel}</b> · {group}<br>"
+                         + (f"Speaker: {sp}<br>" if sp is not None else '')
+                         + f"F1: {f1:{fmt}} {scale}<br>F2: {f2:{fmt}} {scale}"
+                         for f1, f2, sp in zip(vdata['F1'], vdata['F2'],
+                                               vdata['speaker'] if 'speaker' in vdata.columns else [None] * len(vdata))]
+                fig.add_trace(go.Scatter(
+                    x=vdata['F2'], y=vdata['F1'], mode='markers', name=name, showlegend=False,
+                    marker=dict(size=7, symbol=symbols[vowel] + fill, color=color, opacity=0.45,
+                                line=dict(width=1.2 if is_open else 0, color=color)),
+                    text=hover, hoverinfo='text', **legend))
+
+        # 4. Vowel means with labels (this trace is the legend entry of the group)
+        fig.add_trace(go.Scatter(
+            x=means['F2'], y=means['F1'], mode='markers+text', name=name,
+            marker=dict(size=15, symbol=[symbols[v] + fill for v in vowels], color=color,
+                        line=dict(width=2.5 if is_open else 1.5, color=color if is_open else 'white')),
+            text=[f'<b>{v}</b>' for v in vowels],
+            textposition=COMPARE_LABEL_POS[gi % len(COMPARE_LABEL_POS)],
+            textfont=dict(size=15, color=color),
+            hovertext=[f"<b>{v}</b> · {group} (mean of {counts[v]})<br>F1: {f1:{fmt}} {scale}<br>F2: {f2:{fmt}} {scale}"
+                       for v, f1, f2 in zip(vowels, means['F1'], means['F2'])],
+            hoverinfo='text', cliponaxis=False, **legend))
+
+    fig.update_xaxes(range=_reversed_axis_range(all_x, 2700, 600, scale), title=f'F2 ({scale})',
+                     showgrid=True, gridcolor='lightgray')
+    fig.update_yaxes(range=_reversed_axis_range(all_y, 1200, 100, scale), title=f'F1 ({scale})',
+                     showgrid=True, gridcolor='lightgray')
+    kind = f'{n_std:g} SD ellipses' if ellipses else 'vowel space'
+    fig.update_layout(
+        title=(f'Group comparison: {kind} - {scale}<br><sub>Colour, marker fill and line style = group • '
+               f'Marker shape + label = vowel (large marker = mean) • Shaded polygon = vowel space of the group • '
+               f'Click a group to hide/show it</sub>'),
+        width=1000, height=700, plot_bgcolor='white', hovermode='closest', font=dict(size=12),
+        legend=dict(title=dict(text=f'<b>{group_title}</b><br><sub>(click to toggle)</sub>', font=dict(size=14)),
+                    orientation='v', yanchor='top', y=1, xanchor='left', x=1.02,
+                    bgcolor='rgba(255, 255, 255, 0.9)', bordercolor='gray', borderwidth=1,
+                    itemclick='toggle', itemdoubleclick='toggleothers', groupclick='togglegroup'))
+    return json.loads(fig.to_json())
