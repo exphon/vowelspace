@@ -13,6 +13,8 @@
         <header>
             <form class="user-bar" method="post" action="{{ url_for('logout') }}">
                 {{ logout_form.hidden_tag() }}
+                <a class="slides-link" href="{{ url_for('slides') }}" target="_blank" rel="noopener"
+                   title="Tutorial slides (Korean): how to use the tool and read the results">📑 Tutorial slides</a>
                 <span>👤 {{ username }}</span>
                 <button type="submit">Log out</button>
             </form>

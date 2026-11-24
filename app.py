@@ -326,6 +326,15 @@ def index():
     return render_template('index.html', username=current_user.username)
 
 
+@app.route('/slides')
+def slides():
+    """Tutorial slides about the tool (slides/vowelspace.html), for logged-in users."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'slides', 'vowelspace.html')
+    if not os.path.isfile(path):
+        return 'The slides are not available on this server.', 404
+    return send_file(path, mimetype='text/html', conditional=True)
+
+
 @app.route('/upload', methods=['POST'])
 @with_workspace
 def upload_file(workspace):

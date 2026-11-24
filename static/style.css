@@ -47,8 +47,18 @@ header {
     cursor: pointer;
 }
 
-.user-bar button:hover {
+.user-bar button:hover,
+.user-bar .slides-link:hover {
     background: rgba(255, 255, 255, 0.2);
+}
+
+.user-bar .slides-link {
+    margin-right: auto;
+    padding: 6px 14px;
+    border: 1px solid rgba(255, 255, 255, 0.7);
+    border-radius: 6px;
+    color: white;
+    text-decoration: none;
 }
 
 header h1 {
