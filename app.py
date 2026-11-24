@@ -31,7 +31,8 @@ from utils.visualizer import (
     create_histogram,
     create_scatter_matrix,
     create_mean_comparison_plot,
-    create_pairwise_comparison_plot
+    create_pairwise_comparison_plot,
+    create_vowel_space_area_plot
 )
 from utils.statistics import perform_comprehensive_analysis
 from utils.formant_scales import convert_formants, get_scale_label, get_available_scales
@@ -51,7 +52,7 @@ def convert_to_json_serializable(obj):
     elif isinstance(obj, (np.integer, int)):
         return int(obj)
     elif isinstance(obj, (np.floating, float)):
-        return float(obj)
+        return float(obj) if np.isfinite(obj) else None    # NaN/inf are not valid JSON
     elif isinstance(obj, np.ndarray):
         return obj.tolist()
     elif isinstance(obj, dict):
@@ -659,6 +660,12 @@ def analyze_data(workspace):
         if data_source == 'wav_textgrid':
             data = remove_outliers_by_vowel(data)
 
+        if 'F1' not in data.columns or 'F2' not in data.columns:
+            return jsonify({'success': False, 'error': 'The statistical analysis needs F1 and F2 values.'}), 400
+        data = data.dropna(subset=['F1', 'F2'])
+        if len(data) < 3:
+            return jsonify({'success': False, 'error': 'There are too few tokens for a statistical analysis.'}), 400
+
         basic_filter_applied = False
         basic_filter_removed = 0
         if limit_basic_vowels and ('vowel' in data.columns or 'vowel_raw' in data.columns):
@@ -687,8 +694,19 @@ def analyze_data(workspace):
             data = convert_formants(data, from_scale='Hz', to_scale=formant_scale,
                                     formant_cols=[c for c in ('F1', 'F2', 'F3', 'F4') if c in data.columns])
         
+        # The groups contrasted in the plots are a grouping variable here too
+        # (speaker and language already are, so only upload sets and speaker
+        # groups add a column of their own)
+        compared, compare_mode = comparison_groups(data, workspace, request.form.get('compare_by', 'auto'))
+        extra_group_vars = []
+        if compared is not None and compare_mode in ('set', 'prefix'):
+            data = compared
+            extra_group_vars.append('compare_group')
+        compare_column = {'set': 'compare_group', 'prefix': 'compare_group',
+                          'speaker': 'speaker', 'language': 'native_language'}.get(compare_mode)
+
         # Perform comprehensive analysis
-        analysis_results = perform_comprehensive_analysis(data)
+        analysis_results = perform_comprehensive_analysis(data, extra_group_vars=extra_group_vars)
         
         # Create visualizations with scale label
         scale_label = get_scale_label(formant_scale)
@@ -699,30 +717,25 @@ def analyze_data(workspace):
             plots['pca'] = create_pca_plot(analysis_results['pca_data'], analysis_results['pca'], scale=scale_label)
         
         # LDA plots
-        if 'vowel' in data.columns and 'lda_data_vowel' in analysis_results:
-            plots['lda_vowel'] = create_lda_plot(
-                analysis_results['lda_data_vowel'], 
-                analysis_results['lda']['vowel'],
-                group_by='vowel',
-                scale=scale_label
-            )
-        
-        if 'speaker' in data.columns and 'lda_data_speaker' in analysis_results:
-            plots['lda_speaker'] = create_lda_plot(
-                analysis_results['lda_data_speaker'],
-                analysis_results['lda']['speaker'],
-                group_by='speaker',
-                scale=scale_label
-            )
-        
-        if 'native_language' in data.columns and 'lda_data_native_language' in analysis_results:
-            plots['lda_language'] = create_lda_plot(
-                analysis_results['lda_data_native_language'],
-                analysis_results['lda']['native_language'],
-                group_by='native_language',
-                scale=scale_label
-            )
-        
+        for group_var in analysis_results.get('group_vars', []):
+            if 'lda_data_' + group_var in analysis_results and not analysis_results['lda'][group_var].get('error'):
+                plots[f'lda_{group_var}'] = create_lda_plot(
+                    analysis_results['lda_data_' + group_var],
+                    analysis_results['lda'][group_var],
+                    group_by=group_var,
+                    scale=scale_label
+                )
+
+        # Vowel space size: one polygon per compared group, or one for all data
+        vowel_space = analysis_results.get('vowel_space') or {}
+        spaces = list((vowel_space.get('by') or {}).get(compare_column, {}).items())
+        if not any(m and not m.get('error') for _, m in spaces):
+            spaces = [('All data', vowel_space.get('overall'))]
+        vowel_space_plot = create_vowel_space_area_plot(
+            spaces, scale=scale_label, group_title=COMPARE_TITLES.get(compare_mode))
+        if vowel_space_plot:
+            plots['vowel_space'] = vowel_space_plot
+
         # Statistical plots - create for each available grouping variable
         grouping_vars = []
         if 'vowel' in data.columns:
@@ -731,6 +744,7 @@ def analyze_data(workspace):
             grouping_vars.append('speaker')
         if 'native_language' in data.columns:
             grouping_vars.append('native_language')
+        grouping_vars += extra_group_vars
         
         for group_var in grouping_vars:
             # Box plot
@@ -784,6 +798,9 @@ def analyze_data(workspace):
             'success': True,
             'analysis': analysis_results,
             'plots': plots,
+            'scale': scale_label,
+            'comparison': ({'by': compare_mode, 'column': compare_column, 'title': COMPARE_TITLES[compare_mode]}
+                           if compare_mode else None),
             'column_detection': detection_info,
             'filters': {
                 'basic_vowels_only': basic_filter_applied,

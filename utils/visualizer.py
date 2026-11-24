@@ -2258,3 +2258,83 @@ def create_group_comparison_plot(df, group_col='compare_group', scale='Hz', elli
                     bgcolor='rgba(255, 255, 255, 0.9)', bordercolor='gray', borderwidth=1,
                     itemclick='toggle', itemdoubleclick='toggleothers', groupclick='togglegroup'))
     return json.loads(fig.to_json())
+
+
+def create_vowel_space_area_plot(spaces, scale='Hz', group_title=None):
+    """
+    Picture of the vowel space size: the polygon through the vowel means
+    (its area is A), the centroid c and the distances from the centroid to
+    every vowel mean (their average is the dispersion D).
+
+    ``spaces`` is a list of (name, metrics) with metrics from
+    statistics.vowel_space_metrics(); one polygon per entry.
+    """
+    spaces = [(name, m) for name, m in spaces if m and not m.get('error')]
+    if not spaces:
+        return None
+
+    fmt = _value_format(scale)
+    area_fmt = ',.0f' if scale == 'Hz' else ',.2f'
+    single = len(spaces) == 1
+    fig = go.Figure()
+    all_x, all_y = [], []
+
+    for gi, (name, m) in enumerate(spaces):
+        color = COMPARE_COLORS[gi % len(COMPARE_COLORS)]
+        dash = COMPARE_DASHES[gi % len(COMPARE_DASHES)]
+        by_vowel = {v['vowel']: v for v in m['vowels']}
+        legend = dict(legendgroup=f'space:{name}')
+        label = (f"{name}: A = {m['area']:{area_fmt}} {scale}², D = {m['dispersion']:{fmt}} {scale}")
+        cx, cy = m['centroid_F2'], m['centroid_F1']
+        all_x += [v['F2'] for v in m['vowels']]
+        all_y += [v['F1'] for v in m['vowels']]
+
+        # polygon (area A)
+        corners = [by_vowel[v] for v in m['hull']]
+        corners.append(corners[0])
+        fig.add_trace(go.Scatter(
+            x=[v['F2'] for v in corners], y=[v['F1'] for v in corners], mode='lines',
+            line=dict(color=color, width=2.5, dash=dash), fill='toself', fillcolor=_rgba(color, 0.13),
+            name=label, hoverinfo='skip', **legend))
+
+        # distances from the centroid (their mean is D)
+        sx, sy = [], []
+        for v in m['vowels']:
+            sx += [cx, v['F2'], None]
+            sy += [cy, v['F1'], None]
+        fig.add_trace(go.Scatter(
+            x=sx, y=sy, mode='lines', line=dict(color=color if not single else '#862e9c', width=1.2, dash='dot'),
+            name='distance to centroid', showlegend=single, hoverinfo='skip', **legend))
+
+        # vowel means
+        fig.add_trace(go.Scatter(
+            x=[v['F2'] for v in m['vowels']], y=[v['F1'] for v in m['vowels']], mode='markers+text',
+            marker=dict(size=13, color=color, line=dict(width=1.5, color='white')),
+            text=[f"<b>{v['vowel']}</b>" for v in m['vowels']],
+            textposition=COMPARE_LABEL_POS[gi % len(COMPARE_LABEL_POS)], textfont=dict(size=15, color=color),
+            hovertext=[f"<b>{v['vowel']}</b> · {name} (mean of {v['n']})<br>F1: {v['F1']:{fmt}} {scale}<br>"
+                       f"F2: {v['F2']:{fmt}} {scale}<br>Distance to centroid: {v['distance']:{fmt}} {scale}"
+                       + ('' if v['on_hull'] else '<br>inside the polygon (not a corner)')
+                       for v in m['vowels']],
+            hoverinfo='text', name='vowel mean', showlegend=single, cliponaxis=False, **legend))
+
+        # centroid
+        fig.add_trace(go.Scatter(
+            x=[cx], y=[cy], mode='markers+text' if single else 'markers',
+            marker=dict(size=14, symbol='x', color=color if not single else '#862e9c'),
+            text=['<b>c</b>'], textposition='top center', textfont=dict(size=15, color='#862e9c'),
+            hovertext=[f"<b>Centroid</b> · {name}<br>F1: {cy:{fmt}} {scale}<br>F2: {cx:{fmt}} {scale}"],
+            hoverinfo='text', name='centroid c', showlegend=single, **legend))
+
+    fig.update_xaxes(range=_reversed_axis_range(all_x, 2700, 600, scale), title=f'F2 ({scale})',
+                     showgrid=True, gridcolor='lightgray')
+    fig.update_yaxes(range=_reversed_axis_range(all_y, 1200, 100, scale), title=f'F1 ({scale})',
+                     showgrid=True, gridcolor='lightgray')
+    fig.update_layout(
+        title=(f'Vowel space size - {scale}<br><sub>Shaded polygon through the vowel means = area A • '
+               f'✕ = centroid c • dotted lines = distances to the centroid (mean = D)</sub>'),
+        width=1000, height=650, plot_bgcolor='white', hovermode='closest', font=dict(size=12),
+        legend=dict(title=dict(text=f'<b>{group_title}</b>' if group_title and not single else None),
+                    orientation='h', yanchor='top', y=-0.14, xanchor='left', x=0,
+                    groupclick='togglegroup' if not single else 'toggleitem'))
+    return json.loads(fig.to_json())

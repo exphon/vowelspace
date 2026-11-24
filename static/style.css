@@ -813,3 +813,22 @@ footer {
     opacity: 0.6;
     cursor: not-allowed;
 }
+
+/* Statistical analysis: formulas and LDA confusion table */
+.formula-box {
+    background: #f8f9fa;
+    border-left: 4px solid #667eea;
+    border-radius: 6px;
+    padding: 0.75rem 1.25rem;
+    margin: 1rem 0;
+}
+.formula-box p { margin: 0.4rem 0; }
+.formula-box .formula {
+    font-family: "Cambria Math", "STIX Two Math", Georgia, serif;
+    font-size: 1.15rem;
+    padding-left: 1.5rem;
+    margin-bottom: 0.8rem;
+}
+.confusion-table td { text-align: center; }
+.confusion-table td.confusion-hit { background: #d3f9d8; font-weight: 600; }
+.confusion-table td.confusion-miss { background: #ffe3e3; }

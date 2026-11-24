@@ -26,7 +26,8 @@
 - **PCA**: 주성분 분석 (차원 축소 및 시각화)
 - **LDA**: 선형 판별 분석 (그룹 분류 및 시각화)
 - **쌍별 검정**: t-test와 Cohen's d 효과 크기
-- **모음 공간 메트릭**: 면적, 중심점, 분산도 계산
+- **모음 공간 크기**: 모음 평균점을 이은 바깥 다각형의 넓이 A, 중심점 c, 퍼진 정도 D(중심점에서 각 모음까지의 평균 거리)를 그림·공식·표로 표시
+- **집단 비교**: 그래프에서 비교하는 집단(업로드 묶음, 화자 집단)이 통계에서도 그룹 변수로 쓰임
 
 ### 📊 통계 그래프
 
@@ -249,7 +250,11 @@ i,300,2300,A,Korean
    - **LDA**: 선형 판별 분석 및 분류
    - **통계 그래프**: 박스플롯, 바이올린 플롯, 밀도 플롯, 평균 비교, 산점도 행렬
    - **쌍별 검정**: 모든 그룹 쌍의 t-test 결과
-   - **모음 공간 메트릭**: 면적, 분산도 등
+   - **모음 공간 크기**: 다각형 그림, 계산 공식, 넓이·중심점·퍼진 정도(전체와 집단별)
+
+통계 분석 단추는 F1, F2 값이 있는 자료를 그리면 항상 나타납니다(CSV/TXT/XLSX, WAV+TextGrid, 여러 파일을 함께 올린 경우 모두). 분석은 화면에서 고른 포먼트 스케일, 핵심 모음 필터, Compare Groups 설정을 그대로 따릅니다. 각 탭에는 결과를 읽는 방법이 함께 적혀 있습니다(튜토리얼 슬라이드 6장과 같은 내용).
+
+참고: MANOVA 탭은 Wilks' Λ 값과 포먼트별 일원 분산분석(F, p)을 보여 줍니다. 쌍별 검정에는 다중 비교 보정이 적용되지 않고, LDA 정확도는 학습에 쓴 자료로 평가한 값입니다.
 
 ### CSV/TXT/XLSX 파일 형식
 
@@ -558,8 +563,10 @@ vowelspace/
 통계 분석을 수행합니다.
 
 **Parameters:**
-- `files`: 업로드할 파일(들)
+- `files`: 업로드할 파일(들) (생략하면 보관 중인 파일)
 - `formant_scale`: 포먼트 스케일
+- `limit_basic_vowels`: `true`면 핵심 모음만 분석
+- `compare_by`: `/upload`와 같은 비교 기준. 업로드 묶음(`set`)이나 화자 집단(`prefix`)을 비교하면 `compare_group`이 그룹 변수로 추가됨
 
 **Response:**
 ```json
@@ -571,7 +578,8 @@ vowelspace/
     "pca": {...},
     "lda": {...},
     "pairwise": {...},
-    "vowel_space": {...}
+    "vowel_space": {"overall": {...}, "by": {"speaker": {...}}},
+    "group_vars": ["vowel", "speaker", ...]
   },
   "plots": {
     "pca": {...},
@@ -580,8 +588,11 @@ vowelspace/
     "violin_vowel": {...},
     "histogram_vowel": {...},
     "mean_comparison_vowel": {...},
-    "scatter_matrix": {...}
+    "scatter_matrix": {...},
+    "vowel_space": {...}
   },
+  "scale": "Hz",
+  "comparison": {"by": "set", "column": "compare_group", "title": "Upload sets"},
   "column_detection": {...}
 }
 ```

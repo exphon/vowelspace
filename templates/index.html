@@ -278,7 +278,7 @@ SP02,ai,1,1.00,350,2250,2760</pre>
                     <button class="tab-button" data-tab="lda">LDA</button>
                     <button class="tab-button" data-tab="statistical-plots">Statistical Plots</button>
                     <button class="tab-button" data-tab="pairwise">Pairwise Tests</button>
-                    <button class="tab-button" data-tab="metrics">Vowel Space Metrics</button>
+                    <button class="tab-button" data-tab="metrics">Vowel Space Size</button>
                 </div>
 
                 <div id="descriptive" class="tab-content active">
@@ -586,8 +586,9 @@ a,700,1200,1.5</pre>
                     showResult(data);
                     
                     // Show analyze button if data has required columns
+                    const cols = (data.data_summary && data.data_summary.columns) || [];
                     analyzeBtn.style.display =
-                        (data.data_summary && data.data_summary.column_detection) ? 'inline-block' : 'none';
+                        (cols.includes('F1') && cols.includes('F2')) ? 'inline-block' : 'none';
                 } else {
                     showError(data.error || 'An error occurred while processing the file.');
                 }
@@ -679,6 +680,7 @@ a,700,1200,1.5</pre>
             // Add formant scale
             formData.append('formant_scale', document.getElementById('formantScale').value);
             formData.append('limit_basic_vowels', limitBasicVowels.checked ? 'true' : 'false');
+            formData.append('compare_by', document.getElementById('compareBy').value);
 
             showLoading(true);
             hideError();
@@ -823,7 +825,7 @@ a,700,1200,1.5</pre>
 
         function showAnalysis(data) {
             const analysis = data.analysis;
-            const plots = data.plots;
+            const plots = data.plots || {};
 
             const existingFilterNotice = document.getElementById('filterNotice');
             if (existingFilterNotice) {
@@ -856,72 +858,84 @@ a,700,1200,1.5</pre>
                 }
             }
 
+            // ---- helpers shared by the result tabs ----
+            const scale = data.scale || 'Hz';
+            const digits = scale === 'Hz' ? 1 : 2;
+            const esc = (v) => String(v).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+            const num = (v, d = digits) => (v === null || v === undefined || Number.isNaN(Number(v)))
+                ? '–' : Number(v).toLocaleString('en-US', {minimumFractionDigits: d, maximumFractionDigits: d});
+            const pText = (p) => (p === null || p === undefined) ? '–' : (p < 0.001 ? '&lt; 0.001' : p.toFixed(3));
+            const groupLabels = {
+                vowel: 'vowel', speaker: 'speaker', native_language: 'language / group',
+                compare_group: (data.comparison && data.comparison.title) ? data.comparison.title.toLowerCase() : 'group'
+            };
+            const groupLabel = (v) => groupLabels[v] || v;
+            // grouping variables in a fixed order: vowel first, then the compared groups
+            const byGroupVar = (obj) => {
+                const order = ['vowel', 'compare_group', 'speaker', 'native_language'];
+                return Object.entries(obj || {}).sort((a, b) =>
+                    (order.indexOf(a[0]) + 1 || 99) - (order.indexOf(b[0]) + 1 || 99));
+            };
+            const explain = (html) => `<p class="help-text">${html}</p>`;
+
             // Descriptive statistics
             if (analysis.descriptive) {
                 let html = '<h3>Descriptive Statistics</h3>';
-                
-                // Show statistics for each grouping variable
-                for (const [groupVar, stats] of Object.entries(analysis.descriptive)) {
-                    html += `<h4>By ${groupVar}</h4>`;
-                    
-                    if (stats.by_group && Object.keys(stats.by_group).length > 0) {
-                        for (const [group, groupStats] of Object.entries(stats.by_group)) {
-                            html += `<h5>${group}</h5>`;
-                            html += '<table class="stats-table"><thead><tr>';
-                            html += '<th>Statistic</th><th>F1</th><th>F2</th></tr></thead><tbody>';
-                            
-                            if (groupStats.F1 && groupStats.F2) {
-                                html += `<tr><td>Mean</td><td>${groupStats.F1.mean.toFixed(2)}</td><td>${groupStats.F2.mean.toFixed(2)}</td></tr>`;
-                                html += `<tr><td>Std Dev</td><td>${groupStats.F1.std.toFixed(2)}</td><td>${groupStats.F2.std.toFixed(2)}</td></tr>`;
-                                html += `<tr><td>Min</td><td>${groupStats.F1.min.toFixed(2)}</td><td>${groupStats.F2.min.toFixed(2)}</td></tr>`;
-                                html += `<tr><td>Max</td><td>${groupStats.F1.max.toFixed(2)}</td><td>${groupStats.F2.max.toFixed(2)}</td></tr>`;
-                            }
-                            
-                            html += '</tbody></table>';
-                        }
+                html += explain(`The <strong>mean</strong> is the typical position of a group and the <strong>standard deviation (SD)</strong> its spread; the SD also sets the size of the ellipses. Means of groups with few tokens (small <em>n</em>) are less reliable. Values in ${esc(scale)}.`);
+
+                for (const [groupVar, stats] of byGroupVar(analysis.descriptive)) {
+                    if (!stats.by_group || Object.keys(stats.by_group).length === 0) continue;
+                    html += `<h4>By ${esc(groupLabel(groupVar))}</h4>`;
+                    html += '<table class="stats-table"><thead><tr>';
+                    html += `<th>${esc(groupLabel(groupVar))}</th><th>n</th><th>F1 mean (SD)</th><th>F2 mean (SD)</th><th>F1 median</th><th>F2 median</th><th>F1 min – max</th><th>F2 min – max</th></tr></thead><tbody>`;
+                    for (const [group, g] of Object.entries(stats.by_group)) {
+                        if (!g.F1 || !g.F2) continue;
+                        html += `<tr><td><strong>${esc(group)}</strong></td><td>${g.F1.count}</td>`;
+                        html += `<td>${num(g.F1.mean)} (${num(g.F1.std)})</td><td>${num(g.F2.mean)} (${num(g.F2.std)})</td>`;
+                        html += `<td>${num(g.F1.median)}</td><td>${num(g.F2.median)}</td>`;
+                        html += `<td>${num(g.F1.min)} – ${num(g.F1.max)}</td><td>${num(g.F2.min)} – ${num(g.F2.max)}</td></tr>`;
                     }
+                    if (stats.overall && stats.overall.F1 && stats.overall.F2) {
+                        const o = stats.overall;
+                        html += `<tr><td><em>all</em></td><td>${o.F1.count}</td>`;
+                        html += `<td>${num(o.F1.mean)} (${num(o.F1.std)})</td><td>${num(o.F2.mean)} (${num(o.F2.std)})</td>`;
+                        html += `<td>${num(o.F1.median)}</td><td>${num(o.F2.median)}</td>`;
+                        html += `<td>${num(o.F1.min)} – ${num(o.F1.max)}</td><td>${num(o.F2.min)} – ${num(o.F2.max)}</td></tr>`;
+                    }
+                    html += '</tbody></table>';
                 }
-                
+                html += '<p class="note">A group with a single token has no standard deviation (–).</p>';
+
                 document.getElementById('descriptive').innerHTML = html;
             }
 
             // MANOVA results - handle multiple grouping variables
             if (analysis.manova && Object.keys(analysis.manova).length > 0) {
                 let html = '<h3>Multivariate Analysis of Variance (MANOVA)</h3>';
-                html += '<p>Tests for integrated differences in F1 and F2 between groups.</p>';
-                
-                for (const [groupVar, manovaResult] of Object.entries(analysis.manova)) {
+                html += explain('<strong>Question:</strong> looking at F1 and F2 <em>together</em>, do the group means differ? <strong>Wilks’ Λ</strong> is the share of the total scatter that lies <em>within</em> the groups: close to 0 means the groups are well separated, 1 means no difference. Each formant is then checked on its own with a one-way <strong>ANOVA</strong>: the <strong>F value</strong> is the difference between groups divided by the scatter within groups, and the <strong>p value</strong> is the probability of such a result if there were no difference.');
+
+                for (const [groupVar, manovaResult] of byGroupVar(analysis.manova)) {
                     if (manovaResult && !manovaResult.error) {
-                        html += `<h4>By ${groupVar}</h4>`;
-                        
-                        // Show formant-wise ANOVA results
+                        html += `<h4>By ${esc(groupLabel(groupVar))} (${manovaResult.n_groups} groups)</h4>`;
+
+                        if (manovaResult.multivariate && manovaResult.multivariate.test) {
+                            html += `<p><strong>Wilks’ Λ = ${num(manovaResult.multivariate.statistic, 3)}</strong> (0 = perfectly separated, 1 = no difference)</p>`;
+                        }
+
                         if (manovaResult.formants) {
                             html += '<table class="stats-table"><thead><tr>';
-                            html += '<th>Formant</th><th>F-statistic</th><th>p-value</th><th>Significance</th></tr></thead><tbody>';
-                            
+                            html += '<th>Formant</th><th>F value</th><th>p value</th><th>Result</th></tr></thead><tbody>';
                             for (const [formant, result] of Object.entries(manovaResult.formants)) {
-                                const significant = result.significant ? '✓ Significant' : 'Not significant';
-                                html += `<tr><td>${formant}</td><td>${result.f_statistic.toFixed(4)}</td>`;
-                                html += `<td>${result.p_value.toFixed(4)}</td><td>${significant} ${result.significance_level}</td></tr>`;
+                                const verdict = result.significant ? 'significant' : 'not significant';
+                                html += `<tr${result.significant ? ' class="significant"' : ''}><td>${formant}</td><td>${num(result.f_statistic, 1)}</td>`;
+                                html += `<td>${pText(result.p_value)}</td><td>${verdict} <code>${result.significance_level}</code></td></tr>`;
                             }
-                            
                             html += '</tbody></table>';
-                        }
-                        
-                        // Show multivariate test if available
-                        if (manovaResult.multivariate) {
-                            html += '<p class="note"><strong>Multivariate Test:</strong> ';
-                            if (manovaResult.multivariate.test) {
-                                html += `${manovaResult.multivariate.test} = ${manovaResult.multivariate.statistic.toFixed(4)}`;
-                            }
-                            if (manovaResult.multivariate.interpretation) {
-                                html += ` (${manovaResult.multivariate.interpretation})`;
-                            }
-                            html += '</p>';
                         }
                     }
                 }
-                
+                html += '<p class="note"><code>***</code> p &lt; 0.001, <code>**</code> p &lt; 0.01, <code>*</code> p &lt; 0.05, <code>ns</code> not significant. Wilks’ Λ is reported as a value only; the significance marks belong to the per-formant ANOVAs. A significant result says that at least one group differs — the Pairwise Tests tab shows which ones.</p>';
+
                 document.getElementById('manova').innerHTML = html;
             }
 
@@ -929,7 +943,7 @@ a,700,1200,1.5</pre>
             if (analysis.pca && plots.pca) {
                 const pca = analysis.pca;
                 let html = '<h3>Principal Component Analysis (PCA)</h3>';
-                html += '<p>Summarizes variation in F1 and F2 into principal components.</p>';
+                html += explain('F1 and F2 are <strong>standardized</strong> first, so their different ranges do not matter. <strong>PC1</strong> is the direction in which the data spread most, <strong>PC2</strong> is at a right angle to it. PCA does not use the vowel labels; it only looks at the shape of the data.');
                 
                 html += '<table class="stats-table"><thead><tr>';
                 html += '<th>Principal Component</th><th>Explained Variance (%)</th></tr></thead><tbody>';
@@ -953,39 +967,54 @@ a,700,1200,1.5</pre>
             // LDA results - handle multiple LDA analyses
             if (analysis.lda && Object.keys(analysis.lda).length > 0) {
                 let html = '<h3>Linear Discriminant Analysis (LDA)</h3>';
-                html += '<p>Finds discriminant functions that maximally separate groups.</p>';
-                
-                // Show LDA for each grouping variable
-                for (const [groupVar, ldaResult] of Object.entries(analysis.lda)) {
+                html += explain('LDA is <strong>told the group labels</strong> and finds the axes that separate the groups best, then <strong>predicts</strong> the group of every token from F1 and F2. The accuracy shows how well the groups can be told apart acoustically. PCA finds the direction of spread, LDA the direction of separation.');
+
+                for (const [groupVar, ldaResult] of byGroupVar(analysis.lda)) {
                     if (ldaResult && !ldaResult.error) {
                         const plotKey = `lda_${groupVar}`;
                         const plotId = `ldaPlot_${groupVar}`;
-                        
-                        html += `<h4>LDA by ${groupVar}</h4>`;
+
+                        html += `<h4>LDA by ${esc(groupLabel(groupVar))}</h4>`;
                         html += '<table class="stats-table"><thead><tr>';
                         html += '<th>Metric</th><th>Value</th></tr></thead><tbody>';
-                        
-                        html += `<tr><td>Number of Discriminants</td><td>${ldaResult.n_components}</td></tr>`;
-                        html += `<tr><td>Classification Accuracy</td><td>${(ldaResult.accuracy * 100).toFixed(2)}%</td></tr>`;
-                        html += `<tr><td>Number of Groups</td><td>${ldaResult.n_groups}</td></tr>`;
-                        
+                        html += `<tr><td>Classification accuracy</td><td><strong>${(ldaResult.accuracy * 100).toFixed(1)}%</strong> (${ldaResult.n_correct} of ${ldaResult.n_total} tokens correct)</td></tr>`;
+                        html += `<tr><td>Number of groups</td><td>${ldaResult.n_groups}</td></tr>`;
+                        html += `<tr><td>Number of discriminant axes</td><td>${ldaResult.n_components}</td></tr>`;
                         html += '</tbody></table>';
-                        
+
+                        if (ldaResult.confusion && ldaResult.groups.length <= 15) {
+                            html += '<h5>Actual group (rows) against predicted group (columns)</h5>';
+                            html += '<table class="stats-table confusion-table"><thead><tr><th>actual ↓ / predicted →</th>';
+                            ldaResult.groups.forEach(g => { html += `<th>${esc(g)}</th>`; });
+                            html += '<th>correct</th></tr></thead><tbody>';
+                            ldaResult.confusion.forEach((row, i) => {
+                                const total = row.reduce((a, b) => a + b, 0);
+                                html += `<tr><td><strong>${esc(ldaResult.groups[i])}</strong></td>`;
+                                row.forEach((count, j) => {
+                                    const cls = i === j ? 'confusion-hit' : (count > 0 ? 'confusion-miss' : '');
+                                    html += `<td class="${cls}">${count}</td>`;
+                                });
+                                html += `<td>${row[i]} / ${total}</td></tr>`;
+                            });
+                            html += '</tbody></table>';
+                        }
+
                         if (plots[plotKey]) {
                             html += `<div id="${plotId}" class="plot-container"></div>`;
                         }
                     }
                 }
-                
+                html += '<p class="note">The model is trained and tested on the same tokens, so the accuracy is higher than it would be for new data.</p>';
+
                 document.getElementById('lda').innerHTML = html;
-                
+
                 // Render all LDA plots
                 setTimeout(() => {
-                    for (const [groupVar, ldaResult] of Object.entries(analysis.lda)) {
+                    for (const [groupVar, ldaResult] of byGroupVar(analysis.lda)) {
                         if (ldaResult && !ldaResult.error) {
                             const plotKey = `lda_${groupVar}`;
                             const plotId = `ldaPlot_${groupVar}`;
-                            
+
                             if (plots[plotKey]) {
                                 Plotly.newPlot(plotId, plots[plotKey].data, plots[plotKey].layout, {responsive: true});
                             }
@@ -995,7 +1024,7 @@ a,700,1200,1.5</pre>
             }
 
             // Statistical Plots
-            if (plots && Object.keys(plots).length > 0) {
+            if (Object.keys(plots).some(k => /^(boxplot|violin|histogram|mean_comparison|pairwise)_|^scatter_matrix$/.test(k))) {
                 let html = '<h3>Statistical Plots</h3>';
                 html += '<p>Visualize data distributions through various statistical graphs.</p>';
                 
@@ -1007,7 +1036,7 @@ a,700,1200,1.5</pre>
                     boxplots.forEach(plotKey => {
                         const groupVar = plotKey.replace('boxplot_', '');
                         const plotId = `plot_${plotKey}`;
-                        html += `<h5>By ${groupVar}</h5>`;
+                        html += `<h5>By ${esc(groupLabel(groupVar))}</h5>`;
                         html += `<div id="${plotId}" class="plot-container"></div>`;
                     });
                 }
@@ -1020,7 +1049,7 @@ a,700,1200,1.5</pre>
                     violinPlots.forEach(plotKey => {
                         const groupVar = plotKey.replace('violin_', '');
                         const plotId = `plot_${plotKey}`;
-                        html += `<h5>By ${groupVar}</h5>`;
+                        html += `<h5>By ${esc(groupLabel(groupVar))}</h5>`;
                         html += `<div id="${plotId}" class="plot-container"></div>`;
                     });
                 }
@@ -1035,7 +1064,7 @@ a,700,1200,1.5</pre>
                     histograms.forEach(plotKey => {
                         const groupVar = plotKey.replace('histogram_', '');
                         const plotId = `plot_${plotKey}`;
-                        html += `<h5>By ${groupVar}</h5>`;
+                        html += `<h5>By ${esc(groupLabel(groupVar))}</h5>`;
                         html += `<div id="${plotId}" class="plot-container"></div>`;
                     });
                 }
@@ -1044,11 +1073,11 @@ a,700,1200,1.5</pre>
                 const meanPlots = Object.keys(plots).filter(k => k.startsWith('mean_comparison_'));
                 if (meanPlots.length > 0) {
                     html += '<h4>📈 Mean Comparison</h4>';
-                    html += '<p>Compares mean formant values and standard errors for each group.</p>';
+                    html += '<p>The bar height is the <strong>mean</strong>; the error bar is the <strong>standard error</strong>, SE = s / √n (s = standard deviation, n = number of tokens). The more tokens, the shorter the error bar. The SD tells how spread out the data are, the SE how far the mean can be trusted.</p>';
                     meanPlots.forEach(plotKey => {
                         const groupVar = plotKey.replace('mean_comparison_', '');
                         const plotId = `plot_${plotKey}`;
-                        html += `<h5>By ${groupVar}</h5>`;
+                        html += `<h5>By ${esc(groupLabel(groupVar))}</h5>`;
                         html += `<div id="${plotId}" class="plot-container"></div>`;
                     });
                 }
@@ -1062,7 +1091,7 @@ a,700,1200,1.5</pre>
                     pairwisePlots.forEach(plotKey => {
                         const groupVar = plotKey.replace('pairwise_', '');
                         const plotId = `plot_${plotKey}`;
-                        html += `<h5>By ${groupVar}</h5>`;
+                        html += `<h5>By ${esc(groupLabel(groupVar))}</h5>`;
                         html += `<div id="${plotId}" class="plot-container"></div>`;
                     });
                 }
@@ -1160,110 +1189,103 @@ a,700,1200,1.5</pre>
             // Pairwise tests - handle multiple grouping variables
             if (analysis.pairwise && Object.keys(analysis.pairwise).length > 0) {
                 let html = '<h3>Pairwise t-tests</h3>';
-                html += '<p>Tests differences in F1 and F2 for all group pairs.</p>';
-                
-                for (const [groupVar, pairwiseResult] of Object.entries(analysis.pairwise)) {
+                html += explain(`Every two groups are compared with a <strong>t-test</strong>, separately for F1 and F2. The <strong>p value</strong> answers “is there a difference?”, <strong>Cohen’s d</strong> answers “how large is it?”: the mean difference divided by the pooled standard deviation (0.2 small, 0.5 medium, 0.8 large). Mean differences in ${esc(scale)}.`);
+
+                const effectSize = (d) => {
+                    const a = Math.abs(d);
+                    return a < 0.2 ? 'negligible' : a < 0.5 ? 'small' : a < 0.8 ? 'medium' : 'large';
+                };
+
+                for (const [groupVar, pairwiseResult] of byGroupVar(analysis.pairwise)) {
                     if (pairwiseResult && !pairwiseResult.error && pairwiseResult.comparisons) {
-                        html += `<h4>By ${groupVar}</h4>`;
-                        
-                        // Group comparisons by formant
-                        const byFormant = { F1: {}, F2: {} };
-                        
-                        for (const [pair, formantResults] of Object.entries(pairwiseResult.comparisons)) {
-                            for (const [formant, result] of Object.entries(formantResults)) {
-                                byFormant[formant][pair] = result;
+                        const pairs = Object.entries(pairwiseResult.comparisons);
+                        if (pairs.length === 0) continue;
+                        html += `<h4>By ${esc(groupLabel(groupVar))} (${pairs.length} comparisons)</h4>`;
+
+                        for (const formant of ['F1', 'F2']) {
+                            const rows = pairs.filter(([, r]) => r[formant]);
+                            if (rows.length === 0) continue;
+                            html += `<h5>${formant}</h5>`;
+                            html += '<table class="stats-table"><thead><tr>';
+                            html += '<th>Comparison</th><th>n</th><th>Mean difference</th><th>t</th><th>p value</th><th></th><th>Cohen’s d</th><th>Effect size</th></tr></thead><tbody>';
+                            for (const [pair, formantResults] of rows) {
+                                const r = formantResults[formant];
+                                const label = esc(pair).replace('_vs_', ' – ');
+                                html += `<tr${r.significant ? ' class="significant"' : ''}><td>${label}</td>`;
+                                html += `<td>${r.n1} / ${r.n2}</td><td>${num(r.mean_diff)}</td>`;
+                                html += `<td>${num(r.t_statistic, 2)}</td><td>${pText(r.p_value)}</td><td><code>${r.significance_level || ''}</code></td>`;
+                                html += `<td>${num(r.cohens_d, 2)}</td><td>${r.cohens_d === null ? '–' : effectSize(r.cohens_d)}</td></tr>`;
                             }
-                        }
-                        
-                        // Display tables for each formant
-                        for (const [formant, comparisons] of Object.entries(byFormant)) {
-                            if (Object.keys(comparisons).length > 0) {
-                                html += `<h5>${formant}</h5>`;
-                                html += '<table class="stats-table"><thead><tr>';
-                                html += '<th>Comparison</th><th>t-statistic</th><th>p-value</th><th>Cohen\'s d</th><th>Effect Size</th></tr></thead><tbody>';
-                                
-                                for (const [pair, result] of Object.entries(comparisons)) {
-                                    const effectSize = Math.abs(result.cohens_d) < 0.2 ? 'Small' : 
-                                                      Math.abs(result.cohens_d) < 0.5 ? 'Medium' : 
-                                                      Math.abs(result.cohens_d) < 0.8 ? 'Large' : 'Very Large';
-                                    const significant = result.significant ? ' class="significant"' : '';
-                                    
-                                    html += `<tr${significant}><td>${pair}</td>`;
-                                    html += `<td>${result.t_statistic.toFixed(3)}</td>`;
-                                    html += `<td>${result.p_value.toFixed(4)}</td>`;
-                                    html += `<td>${result.cohens_d.toFixed(3)}</td>`;
-                                    html += `<td>${effectSize}</td></tr>`;
-                                }
-                                
-                                html += '</tbody></table>';
-                            }
+                            html += '</tbody></table>';
                         }
                     }
                 }
-                
-                html += '<p class="note">* Highlighted when p < 0.05</p>';
-                
+
+                html += '<p class="note">Rows with p &lt; 0.05 are highlighted. <code>***</code> p &lt; 0.001, <code>**</code> p &lt; 0.01, <code>*</code> p &lt; 0.05, <code>ns</code> not significant. <strong>No correction for multiple comparisons is applied:</strong> with 5 vowels there are already 10 comparisons, and the more comparisons, the more likely a significant result appears by chance. Consider a correction (e.g. Bonferroni: multiply each p by the number of comparisons) before reporting these results.</p>';
+
                 document.getElementById('pairwise').innerHTML = html;
             }
 
-            // Vowel space metrics - handle multiple grouping variables
-            if (analysis.vowel_space && Object.keys(analysis.vowel_space).length > 0) {
-                let html = '<h3>Vowel Space Metrics</h3>';
-                html += '<p>Quantifies the size and dispersion of the vowel space.</p>';
-                
-                for (const [groupVar, metricsResult] of Object.entries(analysis.vowel_space)) {
-                    if (metricsResult) {
-                        html += `<h4>By ${groupVar}</h4>`;
-                        
-                        // Overall metrics
-                        if (metricsResult.overall && !metricsResult.overall.error) {
-                            const metrics = metricsResult.overall;
-                            html += '<h5>Overall</h5>';
-                            html += '<table class="stats-table"><thead><tr>';
-                            html += '<th>Metric</th><th>Value</th><th>Description</th></tr></thead><tbody>';
-                            
-                            if (metrics.area !== undefined) {
-                                html += `<tr><td>Vowel Space Area</td><td>${metrics.area.toFixed(2)}</td>`;
-                                html += '<td>Area of the polygon formed by vowels (Hz²)</td></tr>';
-                            }
-                            
-                            if (metrics.centroid_F1 !== undefined && metrics.centroid_F2 !== undefined) {
-                                html += `<tr><td>Centroid</td><td>F1: ${metrics.centroid_F1.toFixed(2)}, F2: ${metrics.centroid_F2.toFixed(2)}</td>`;
-                                html += '<td>Average position of all vowels</td></tr>';
-                            }
-                            
-                            if (metrics.dispersion !== undefined) {
-                                html += `<tr><td>Dispersion</td><td>${metrics.dispersion.toFixed(2)}</td>`;
-                                html += '<td>Average distance from centroid</td></tr>';
-                            }
-                            
-                            html += '</tbody></table>';
-                        }
-                        
-                        // Group-wise metrics
-                        if (metricsResult.by_group && Object.keys(metricsResult.by_group).length > 0) {
-                            for (const [group, metrics] of Object.entries(metricsResult.by_group)) {
-                                if (metrics && !metrics.error) {
-                                    html += `<h5>${group}</h5>`;
-                                    html += '<table class="stats-table"><thead><tr>';
-                                    html += '<th>Metric</th><th>Value</th></tr></thead><tbody>';
-                                    
-                                    if (metrics.area !== undefined) {
-                                        html += `<tr><td>Area</td><td>${metrics.area.toFixed(2)} Hz²</td></tr>`;
-                                    }
-                                    
-                                    if (metrics.dispersion !== undefined) {
-                                        html += `<tr><td>Dispersion</td><td>${metrics.dispersion.toFixed(2)}</td></tr>`;
-                                    }
-                                    
-                                    html += '</tbody></table>';
-                                }
-                            }
+            // Vowel space metrics
+            if (analysis.vowel_space && analysis.vowel_space.overall) {
+                const vs = analysis.vowel_space;
+                const areaText = (m) => `${num(m.area, scale === 'Hz' ? 0 : 2)} ${esc(scale)}²`;
+                let html = '<h3>Vowel Space Size</h3>';
+                html += explain('How widely are the vowels spread? The size is measured on the <strong>mean</strong> of each vowel. A large area means that the vowels are pronounced far apart from each other. A single value says little: compare speakers, groups or speaking styles. The values change with the frequency scale.');
+
+                if (plots.vowel_space) {
+                    html += '<div id="vowelSpaceSizePlot" class="plot-container"></div>';
+                }
+
+                html += '<div class="formula-box">';
+                html += '<p><strong>Area A</strong>: area of the outer polygon through the vowel means (shoelace formula; x = F2, y = F1, corners in order around the polygon)</p>';
+                html += '<p class="formula">A = ½ · | Σ ( x<sub>i</sub> · y<sub>i+1</sub> − x<sub>i+1</sub> · y<sub>i</sub> ) |</p>';
+                html += '<p><strong>Centroid c</strong>: the mean of the vowel means</p>';
+                html += '<p class="formula">c = ( (1/n) · Σ F1<sub>i</sub> , (1/n) · Σ F2<sub>i</sub> )</p>';
+                html += '<p><strong>Dispersion D</strong>: the mean distance from the centroid to the vowel means</p>';
+                html += '<p class="formula">D = (1/n) · Σ √( (F1<sub>i</sub> − c<sub>1</sub>)² + (F2<sub>i</sub> − c<sub>2</sub>)² )</p>';
+                html += '</div>';
+
+                const metricsTable = (m) => {
+                    let t = '<table class="stats-table"><thead><tr><th>Metric</th><th>Value</th><th>Meaning</th></tr></thead><tbody>';
+                    t += `<tr><td>Area A</td><td><strong>${areaText(m)}</strong></td><td>Polygon through ${m.n_vertices} of ${m.n_vowels} vowel means (${m.hull.map(esc).join(' → ')})</td></tr>`;
+                    t += `<tr><td>Centroid c</td><td>F1 ${num(m.centroid_F1)}, F2 ${num(m.centroid_F2)} ${esc(scale)}</td><td>Middle of the vowel means</td></tr>`;
+                    t += `<tr><td>Dispersion D</td><td><strong>${num(m.dispersion)} ${esc(scale)}</strong></td><td>Mean distance from the centroid</td></tr>`;
+                    t += '</tbody></table>';
+                    t += '<table class="stats-table"><thead><tr><th>Vowel</th><th>n</th><th>F1 mean</th><th>F2 mean</th><th>Distance to c</th><th>Polygon corner</th></tr></thead><tbody>';
+                    m.vowels.forEach(v => {
+                        t += `<tr><td><strong>${esc(v.vowel)}</strong></td><td>${v.n}</td><td>${num(v.F1)}</td><td>${num(v.F2)}</td><td>${num(v.distance)}</td><td>${v.on_hull ? 'yes' : 'no (inside)'}</td></tr>`;
+                    });
+                    t += '</tbody></table>';
+                    return t;
+                };
+
+                html += '<h4>All data</h4>';
+                html += vs.overall.error ? `<p class="note">${esc(vs.overall.error)}</p>` : metricsTable(vs.overall);
+
+                for (const [groupVar, groups] of byGroupVar(vs.by)) {
+                    html += `<h4>By ${esc(groupLabel(groupVar))}</h4>`;
+                    html += '<table class="stats-table"><thead><tr>';
+                    html += `<th>${esc(groupLabel(groupVar))}</th><th>Tokens</th><th>Vowels</th><th>Area A</th><th>Centroid c (F1, F2)</th><th>Dispersion D</th></tr></thead><tbody>`;
+                    for (const [group, m] of Object.entries(groups)) {
+                        if (!m || m.error) {
+                            html += `<tr><td><strong>${esc(group)}</strong></td><td colspan="5">${esc(m && m.error ? m.error : 'not available')}</td></tr>`;
+                        } else {
+                            html += `<tr><td><strong>${esc(group)}</strong></td><td>${m.n_tokens}</td><td>${m.n_vowels}</td><td>${areaText(m)}</td>`;
+                            html += `<td>${num(m.centroid_F1)}, ${num(m.centroid_F2)} ${esc(scale)}</td><td>${num(m.dispersion)} ${esc(scale)}</td></tr>`;
                         }
                     }
+                    html += '</tbody></table>';
                 }
-                
+                html += '<p class="note">Vowels that lie inside the polygon are not corners, so they do not add to the area, but they do count for the centroid and the dispersion. Compare areas only between groups that have the same set of vowels.</p>';
+
                 document.getElementById('metrics').innerHTML = html;
+
+                if (plots.vowel_space) {
+                    setTimeout(() => {
+                        Plotly.newPlot('vowelSpaceSizePlot', plots.vowel_space.data, plots.vowel_space.layout, {responsive: true});
+                    }, 100);
+                }
             }
 
             analysisSection.style.display = 'block';

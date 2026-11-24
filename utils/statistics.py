@@ -248,7 +248,12 @@ def perform_lda(df, group_by='vowel'):
         'accuracy': accuracy,
         'n_groups': n_groups,
         'groups': list(map(str, np.unique(y))),
-        'group_by': group_by
+        'group_by': group_by,
+        'n_total': int(len(y)),
+        'n_correct': int(np.sum(y_pred == y)),
+        # rows = actual group, columns = predicted group (same order as 'groups')
+        'confusion': [[int(np.sum((y == actual) & (y_pred == predicted))) for predicted in np.unique(y)]
+                      for actual in np.unique(y)]
     }
     
     # Add transformed coordinates to dataframe
@@ -317,86 +322,92 @@ def perform_pairwise_tests(df, group_by='vowel'):
                             'p_value': float(p_value),
                             'cohens_d': float(cohens_d),
                             'significant': bool(p_value < 0.05),
-                            'mean_diff': float(np.mean(vals1) - np.mean(vals2))
+                            'significance_level': '***' if p_value < 0.001 else '**' if p_value < 0.01 else '*' if p_value < 0.05 else 'ns',
+                            'mean_diff': float(np.mean(vals1) - np.mean(vals2)),
+                            'n1': int(len(vals1)),
+                            'n2': int(len(vals2))
                         }
     
     return results
 
 
-def calculate_vowel_space_metrics(df, group_by=None):
+def vowel_space_metrics(df):
     """
-    Calculate vowel space area and dispersion metrics
-    
-    Args:
-        df: DataFrame with F1, F2 columns
-        group_by: Optional grouping column
-    
-    Returns:
-        dict with vowel space metrics
+    Size of one vowel space, measured on the vowel means.
+
+    Area A: area of the outer polygon (convex hull) through the vowel means,
+    by the shoelace formula. Centroid c: mean of the vowel means. Dispersion
+    D: mean distance from the centroid to the vowel means.
+
+    Returns a dict with area, perimeter, centroid_F1/F2, dispersion, the vowel
+    means ('vowels': vowel, n, F1, F2, distance, on_hull) and the hull corners
+    in drawing order ('hull'), or {'error': ...} with fewer than 3 vowels.
     """
     from scipy.spatial import ConvexHull
-    
-    results = {}
-    
-    def calc_metrics(data):
-        if len(data) < 3:
-            return None
-        
-        points = data[['F1', 'F2']].values
-        
-        try:
-            hull = ConvexHull(points)
-            area = float(hull.volume)  # In 2D, volume is area
-            
-            # Calculate centroid
-            centroid = points.mean(axis=0)
-            
-            # Calculate dispersion (average distance from centroid)
-            distances = np.sqrt(np.sum((points - centroid)**2, axis=1))
-            dispersion = float(np.mean(distances))
-            
-            return {
-                'area': area,
-                'perimeter': float(hull.area),  # In 2D, area is perimeter
-                'n_vertices': len(hull.vertices),
-                'centroid_F1': float(centroid[0]),
-                'centroid_F2': float(centroid[1]),
-                'dispersion': dispersion,
-                'n_points': len(data)
-            }
-        except Exception as e:
-            return {'error': str(e)}
-    
-    # Overall metrics
-    if 'vowel' in df.columns and len(df['vowel'].unique()) >= 3:
-        # Calculate area using vowel means
-        vowel_means = df.groupby('vowel')[['F1', 'F2']].mean().reset_index()
-        results['overall'] = calc_metrics(vowel_means)
-    else:
-        results['overall'] = calc_metrics(df)
-    
-    # Group-wise metrics
-    if group_by and group_by in df.columns:
-        results['by_group'] = {}
-        
-        for group in df[group_by].unique():
-            group_data = df[df[group_by] == group]
-            
-            if 'vowel' in group_data.columns and len(group_data['vowel'].unique()) >= 3:
-                vowel_means = group_data.groupby('vowel')[['F1', 'F2']].mean().reset_index()
-                results['by_group'][str(group)] = calc_metrics(vowel_means)
-            else:
-                results['by_group'][str(group)] = calc_metrics(group_data)
-    
+
+    if 'vowel' not in df.columns:
+        return {'error': 'A vowel column is needed.'}
+    df = df.dropna(subset=['F1', 'F2', 'vowel'])
+    means = df.groupby('vowel')[['F1', 'F2']].mean()
+    counts = df.groupby('vowel').size()
+    if len(means) < 3:
+        return {'error': f'At least 3 vowels are needed (found {len(means)}).'}
+
+    points = means[['F2', 'F1']].values            # x = F2, y = F1
+    try:
+        hull = [int(i) for i in ConvexHull(points).vertices]
+    except Exception:                               # all means on one line
+        return {'error': 'The vowel means lie on one line, so there is no area.'}
+
+    x, y = points[hull, 0], points[hull, 1]
+    area = 0.5 * abs(float(np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y)))
+    perimeter = float(np.sum(np.hypot(x - np.roll(x, -1), y - np.roll(y, -1))))
+    centroid_f1, centroid_f2 = float(means['F1'].mean()), float(means['F2'].mean())
+    distances = np.hypot(means['F1'] - centroid_f1, means['F2'] - centroid_f2)
+
+    return {
+        'area': area,
+        'perimeter': perimeter,
+        'n_vowels': int(len(means)),
+        'n_vertices': len(hull),
+        'n_tokens': int(len(df)),
+        'centroid_F1': centroid_f1,
+        'centroid_F2': centroid_f2,
+        'dispersion': float(distances.mean()),
+        'vowels': [{'vowel': str(v), 'n': int(counts[v]), 'F1': float(means.loc[v, 'F1']),
+                    'F2': float(means.loc[v, 'F2']), 'distance': float(distances[v]),
+                    'on_hull': i in hull}
+                   for i, v in enumerate(means.index)],
+        'hull': [str(means.index[i]) for i in hull],
+    }
+
+
+def calculate_vowel_space_metrics(df, group_cols=()):
+    """
+    Vowel space size of the whole data set and of every group.
+
+    Returns {'overall': metrics, 'by': {column: {group: metrics}}}; see
+    vowel_space_metrics() for the metrics.
+    """
+    results = {'overall': vowel_space_metrics(df), 'by': {}}
+    for column in group_cols:
+        if column == 'vowel' or column not in df.columns:
+            continue
+        groups = list(dict.fromkeys(df[column].dropna().tolist()))
+        if len(groups) < 2:
+            continue
+        results['by'][column] = {str(g): vowel_space_metrics(df[df[column] == g]) for g in groups}
     return results
 
 
-def perform_comprehensive_analysis(df):
+def perform_comprehensive_analysis(df, extra_group_vars=()):
     """
     Perform comprehensive multivariate analysis
     
     Args:
         df: DataFrame with formant data
+        extra_group_vars: further grouping columns besides vowel, speaker and
+            native_language (e.g. the comparison group of the plots)
     
     Returns:
         dict with all analysis results
@@ -418,6 +429,8 @@ def perform_comprehensive_analysis(df):
         group_vars.append('speaker')
     if 'native_language' in df.columns:
         group_vars.append('native_language')
+    group_vars += [c for c in extra_group_vars if c in df.columns and c not in group_vars]
+    results['group_vars'] = group_vars
     
     # Descriptive statistics
     for group_var in group_vars:
@@ -443,7 +456,6 @@ def perform_comprehensive_analysis(df):
         results['pairwise'][group_var] = perform_pairwise_tests(df, group_by=group_var)
     
     # Vowel space metrics
-    for group_var in group_vars:
-        results['vowel_space'][group_var] = calculate_vowel_space_metrics(df, group_by=group_var)
+    results['vowel_space'] = calculate_vowel_space_metrics(df, group_cols=group_vars)
     
     return results
